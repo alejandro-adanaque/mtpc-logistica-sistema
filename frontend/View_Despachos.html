@@ -1,0 +1,243 @@
+<div class="container-fluid-stitch animate__animated animate__fadeIn">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h2 class="fw-bold m-0" style="color: var(--primary); font-family: var(--font-head);">Salidas a Taller</h2>
+            <p class="text-muted m-0 small font-body">Entrega de repuestos y licencias por Orden de Servicio (OS)</p>
+        </div>
+        <div class="d-flex gap-3">
+            <button class="btn-std btn-std-outline shadow-sm" onclick="abrirPanelTendencias()">
+                <i class="fa-solid fa-fire-flame-curved text-warning"></i> Tendencias
+            </button>
+            <button class="btn-std btn-std-primary shadow-sm" onclick="abrirOffcanvasDespacho()">
+                <i class="fa-solid fa-plus"></i> Nueva Salida
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4" id="metrics-despachos">
+        <div class="col-12 text-center py-3"><div class="stitch-spinner mx-auto"></div></div>
+    </div>
+
+    <div class="card-std bg-white shadow-sm">
+        <div class="toolbar-std p-3 border-bottom d-flex align-items-center flex-wrap gap-3">
+            <div class="d-flex gap-2 flex-grow-1">
+                <div style="min-width: 180px;">
+                    <div class="input-std-wrapper">
+                        <i class="fa-solid fa-user-gear input-std-icon small"></i>
+                        <select id="filtro-user-desp" class="input-std cursor-pointer" onchange="aplicarFiltrosTablaDespachos()">
+                            <option value="">Todos los Técnicos</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="min-width: 180px;">
+                    <div class="input-std-wrapper">
+                        <i class="fa-solid fa-filter input-std-icon small"></i>
+                        <select id="filtro-tipo-desp" class="input-std cursor-pointer" onchange="aplicarFiltrosTablaDespachos()">
+                            <option value="">Todos los Tipos</option>
+                            <option value="SERVICIO">Servicio</option>
+                            <option value="VENTA">Venta Directa</option>
+                            <option value="INTERNO">Uso Interno</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ms-auto" style="min-width: 300px;">
+                <div class="input-std-wrapper">
+                    <i class="fa-solid fa-search input-std-icon"></i>
+                    <input type="text" id="buscador-desp" class="input-std" placeholder="Buscar OS, Código o Técnico..." onkeyup="aplicarFiltrosTablaDespachos()">
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table-std w-100">
+                <thead>
+                    <tr>
+                        <th class="ps-4">Código</th>
+                        <th>Fecha</th>
+                        <th>Técnico / Solicitante</th>
+                        <th>Ref / OS</th>
+                        <th class="text-center">Estado</th>
+                        <th class="text-end">Costo Total</th>
+                        <th class="pe-4 text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-despachos-body"></tbody>
+            </table>
+        </div>
+
+        <div class="pagination-std bg-white border-top">
+            <span class="text-muted small me-auto font-head fw-bold" id="info-pag-tabla-dsp">Cargando...</span>
+            <nav><ul class="pagination pagination-stitch mb-0" id="pag-tabla-dsp"></ul></nav>
+        </div>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasDespacho" style="width: 1100px;">
+    
+    <div class="offcanvas-header-std bg-white border-bottom">
+        <div>
+            <h5 class="fw-bold font-head m-0 text-primary">Despacho de Materiales</h5>
+            <p class="text-muted small m-0 font-body">Asignación de repuestos y licencias a Orden de Servicio (OS)</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+    
+    <div class="offcanvas-body p-0 d-flex font-body bg-light" style="overflow: hidden; height: 100%;">
+        
+        <div class="d-flex flex-column bg-white border-end" style="width: 55%; height: 100%;">
+            <div class="d-flex border-bottom bg-white sticky-top z-2" style="top:0;">
+                 <button class="btn btn-sm flex-grow-1 rounded-0 fw-bold border-0 border-bottom border-3 border-primary text-primary font-head py-2" id="tab-hard" onclick="cambiarModoCatalogo('HARDWARE')">
+                    <i class="fa-solid fa-microchip me-1"></i>Repuestos
+                 </button>
+                 <button class="btn btn-sm flex-grow-1 rounded-0 fw-bold border-0 text-muted font-head py-2" id="tab-soft" onclick="cambiarModoCatalogo('SOFTWARE')">
+                    <i class="fa-brands fa-windows me-1"></i>Licencias
+                 </button>
+            </div>
+
+            <div class="p-3 border-bottom sticky-top bg-white z-2">
+                <div class="input-std-wrapper" style="background-color: var(--primary-bg); border-radius: 2rem; border:none; padding-left: 1rem;">
+                    <i class="fa-solid fa-search input-std-icon text-primary"></i>
+                    <input type="text" class="input-std" 
+                           style="background: transparent; border: none; padding-left: 2.5rem; height: 45px;" 
+                           placeholder="Buscar por SKU o Nombre..." 
+                           onkeyup="filtrarCatalogoDespacho(this.value)">
+                </div>
+            </div>
+            
+            <div class="flex-grow-1 overflow-y-auto p-3 custom-scrollbar" id="grid-catalogo-dsp" style="background-color: #f8fafc;">
+                </div>
+
+            <div class="p-3 bg-white border-top d-flex justify-content-between align-items-center">
+                <small class="text-muted font-head fw-bold" id="info-pag-dsp"></small>
+                <nav><ul class="pagination pagination-sm mb-0 gap-1 pagination-stitch" id="pag-cont-dsp"></ul></nav>
+            </div>
+        </div>
+
+        <div class="d-flex flex-column" style="width: 45%; height: 100%; background-color: #fff;">
+            
+            <div class="p-3 border-bottom d-flex align-items-center gap-2 bg-white">
+                <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                    <i class="fa-solid fa-clipboard-check"></i>
+                </div>
+                <h6 class="fw-bold m-0 font-head text-primary small text-uppercase">Datos de la Salida</h6>
+            </div>
+
+            <div class="flex-grow-1 overflow-y-auto p-4 custom-scrollbar">
+                
+                <div class="offcanvas-section mb-4">
+                  <div class="row g-4">
+                      <div class="col-6">
+                          <div class="md3-input-wrapper">
+                              <div class="md3-input-group">
+                                  <i class="fa-solid fa-user-gear text-muted opacity-50"></i>
+                                  <select id="dsp-user" class="md3-input-field fw-bold text-dark cursor-pointer"></select>
+                              </div>
+                              <label class="md3-label">Técnico Solicitante *</label>
+                          </div>
+                      </div>
+                      <div class="col-6">
+                          <div class="md3-input-wrapper">
+                              <div class="md3-input-group">
+                                  <i class="fa-solid fa-hashtag text-muted opacity-50"></i>
+                                  <input type="text" id="dsp-ref" class="md3-input-field font-monospace fw-bold text-primary" 
+                                        placeholder="Ej: OS-1234" onblur="verificarDuplicidadOS(this.value)">
+                              </div>
+                              <label class="md3-label">N° OS (Referencia)</label>
+                          </div>
+                      </div>
+
+                      <div class="col-6">
+                          <div class="md3-input-wrapper">
+                              <div class="md3-input-group">
+                                  <i class="fa-solid fa-list-check text-muted opacity-50"></i>
+                                  <select id="dsp-tipo" class="md3-input-field cursor-pointer">
+                                      <option value="SERVICIO">Servicio</option>
+                                      <option value="VENTA">Venta Directa</option>
+                                      <option value="GARANTIA">Garantía</option>
+                                      <option value="INTERNO">Uso Interno</option>
+                                  </select>
+                              </div>
+                              <label class="md3-label">Motivo Salida</label>
+                          </div>
+                      </div>
+                      <div class="col-6">
+                          <div class="md3-input-wrapper">
+                              <div class="md3-input-group">
+                                  <i class="fa-regular fa-calendar text-muted opacity-50"></i>
+                                  <input type="date" id="dsp-fecha" class="md3-input-field cursor-pointer">
+                              </div>
+                              <label class="md3-label">Fecha de Despacho</label>
+                          </div>
+                      </div>
+
+                      <div class="col-12 mt-2">
+                        <div class="switch-wrapper">
+                            <span class="switch-label text-on" id="lbl-borrador-dsp">Borrador</span>
+                            
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="check-estado-dsp" onchange="toggleVisualEstadoDespacho(this)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            
+                            <span class="switch-label text-off" id="lbl-confirmado-dsp">Confirmado</span>
+                        </div>
+                        
+                        <p class="text-center text-muted mt-1 m-0 x-small" style="font-size: 0.65rem;">
+                            Cambia para confirmar la salida de stock.
+                        </p>
+
+                        <input type="hidden" id="dsp-estado" value="Borrador">
+                    </div>
+                  </div>
+              </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-3 px-1 border-top pt-3">
+                    <small class="text-muted fw-bold text-uppercase font-head" style="font-size: 0.7rem;">Repuestos Seleccionados</small>
+                    <span class="badge bg-primary rounded-pill" id="badge-dsp-count">0</span>
+                </div>
+                
+                <div id="dsp-items-list" class="d-flex flex-column gap-3 pb-4">
+                    </div>
+            </div>
+
+            <div class="p-4 bg-white border-top shadow-lg z-3">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <span class="font-bold font-head text-dark">VALORIZADO TOTAL</span>
+                    <span class="font-bold fs-2 text-primary">S/ <span id="lbl-total-dsp">0.00</span></span>
+                </div>
+                <button class="btn-std btn-std-primary w-100 py-3 shadow-md font-head fw-bold" onclick="guardarDespacho()">
+                    <i class="fa-solid fa-truck-ramp-box me-2"></i> CONFIRMAR DESPACHO
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasHotTopics" style="width: 450px;">
+    
+    <div class="offcanvas-header-std bg-white border-bottom py-3">
+        <div>
+            <h5 class="fw-bold font-head m-0 text-primary">Tendencias</h5>
+            <p class="text-muted small m-0 font-body">Análisis operativo del taller</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+
+    <div class="offcanvas-body p-4 bg-body custom-scrollbar">
+        <div class="trends-filter-wrapper mb-4">
+            <button class="btn-segment active" id="filter-hoy" onclick="cargarHotTopics('HOY')">Hoy</button>
+            <button class="btn-segment" id="filter-semana" onclick="cargarHotTopics('SEMANA')">7 días</button>
+            <button class="btn-segment" id="filter-mes" onclick="cargarHotTopics('MES')">Mes</button>
+        </div>
+
+        <div id="hot-topics-display" class="space-y-8">
+            <div class="text-center py-5">
+                <div class="stitch-spinner mx-auto"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<iframe id="printFrame" style="position:fixed; bottom:0; right:0; width:0; height:0; border:0; visibility:hidden;"></iframe>

@@ -1,0 +1,578 @@
+<script>
+/**
+ * MÓDULO: CONFIGURACIÓN (LÓGICA V2)
+ */
+
+var usersCache = [];
+var usersFiltered = [];
+var masterCache = { catsProd: [], subsProd: [], catsPartner: [], ubicaciones: [], cuentas: [] };
+var curPageUser = 1;
+const itemsPageUser = 8;
+var editMasterId = null;
+var editMasterType = ''; 
+
+// ==========================================
+// 1. RENDERIZADO (VINCULA LA VISTA)
+// ==========================================
+function renderConfiguracion() {
+    var container = document.getElementById('app-container');
+    container.innerHTML = '<div class="text-center py-5"><div class="stitch-loader"></div></div>';
+    
+    google.script.run.withSuccessHandler(html => {
+        container.innerHTML = html;
+        cargarUsuarios(); 
+    }).obtenerVista('View_Configuracion');
+}
+// ==========================================
+// 2. LÓGICA USUARIOS (Conecta con Srv_Auth.gs)
+// ==========================================
+function cargarUsuarios() {
+    // LLAMADA V2: Srv_Auth.gs -> srvObtenerUsuarios
+    google.script.run.withSuccessHandler(res => {
+        if(res.exito) {
+            usersCache = res.datos;
+            filtrarUsuariosUI();
+            renderKPIsUsers();
+        } else {
+            StitchFeedback.error(res.error);
+        }
+    }).srvObtenerUsuarios(); 
+}
+
+function filtrarUsuariosUI() {
+    var txt = document.getElementById('search-user').value.toLowerCase();
+    var rol = document.getElementById('filter-role').value;
+    usersFiltered = usersCache.filter(u => {
+        var matchTxt = u.nombre_completo.toLowerCase().includes(txt) || u.email.toLowerCase().includes(txt);
+        var matchRol = rol ? u.rol === rol : true;
+        return matchTxt && matchRol;
+    });
+    curPageUser = 1;
+    renderUserTable();
+}
+
+function renderUserTable() {
+    var tbody = document.getElementById('tabla-users-body');
+    if(!tbody) return;
+
+    // Loader inicial (Uniforme)
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5"><div class="stitch-spinner mx-auto"></div></td></tr>';
+
+    var total = usersFiltered.length;
+    var pages = Math.ceil(total / itemsPageUser) || 1;
+    if(curPageUser > pages) curPageUser = pages;
+    var start = (curPageUser - 1) * itemsPageUser;
+    var dataPage = usersFiltered.slice(start, start + itemsPageUser);
+    
+    if(total === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted fst-italic">No se encontraron usuarios.</td></tr>';
+        document.getElementById('pag-user').innerHTML = '';
+        return;
+    }
+
+    var h = '';
+    dataPage.forEach(function(u) {
+        // Lógica de Acceso (Pills uniformes)
+        var tieneAcceso = u.password_hash && !u.password_hash.startsWith('NO_ACCESS_');
+        var pillAcceso = tieneAcceso 
+            ? '<div class="stock-pill pill-health-good" style="font-size:0.65rem; min-width:90px;"><i class="fa-solid fa-shield-check"></i> Habilitado</div>'
+            : '<div class="stock-pill" style="background:#f1f5f9; color:#64748b; font-size:0.65rem; min-width:90px;"><i class="fa-solid fa-user-lock"></i> Solo Campo</div>';
+        
+        // Iniciales para el Avatar
+        var init = u.nombre_completo ? u.nombre_completo.substring(0,2).toUpperCase() : '??';
+        
+        h += '<tr class="align-middle border-bottom animate__animated animate__fadeIn">' +
+             '<td class="ps-4 py-3"><div class="d-flex align-items-center gap-3">' +
+             '<div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width:38px; height:38px; font-size:0.8rem;">' + init + '</div>' +
+             '<div><div class="fw-bold text-dark font-head" style="font-size:0.85rem;">' + u.nombre_completo + '</div>' +
+             '<div class="small text-muted" style="font-size:0.7rem;">' + u.email + '</div></div></div></td>' +
+             '<td><span class="badge bg-light text-dark border fw-bold" style="font-size:0.7rem;">' + u.rol.toUpperCase() + '</span></td>' +
+             '<td class="text-center">' + pillAcceso + '</td>' +
+             '<td class="text-center">' + (u.estado ? '<i class="fa-solid fa-circle-check text-success"></i>' : '<i class="fa-solid fa-circle-xmark text-danger"></i>') + '</td>' +
+             '<td class="pe-4 text-end"><div class="d-flex justify-content-end gap-1">' +
+                '<button class="btn-std btn-icon-only btn-std-outline shadow-sm" onclick="abrirOffcanvasUsuario(' + u.id + ')"><i class="fa-solid fa-pen"></i></button>' +
+             '</div></td></tr>';
+    });
+
+    tbody.innerHTML = h;
+
+    // --- ACTUALIZACIÓN DE UI DE PAGINACIÓN (Estilo Productos/Compras) ---
+    document.getElementById('info-pag-user').innerText = (start + 1) + '-' + Math.min(start + itemsPageUser, total) + ' de ' + total;
+    
+    var pagHtml = '<button class="page-btn ' + (curPageUser === 1 ? 'disabled' : '') + '" onclick="if(curPageUser > 1){ curPageUser--; renderUserTable(); }"><i class="fa-solid fa-chevron-left"></i></button>';
+    
+    for(var i = 1; i <= pages; i++) {
+        // Inyectamos el botón directamente para que jale la clase .page-btn de tu sección 3.7
+        pagHtml += '<button class="page-btn ' + (curPageUser === i ? 'active' : '') + '" onclick="curPageUser=' + i + '; renderUserTable()">' + i + '</button>';
+    }
+    
+    pagHtml += '<button class="page-btn ' + (curPageUser === pages ? 'disabled' : '') + '" onclick="if(curPageUser < ' + pages + '){ curPageUser++; renderUserTable(); }"><i class="fa-solid fa-chevron-right"></i></button>';
+    
+    document.getElementById('pag-user').innerHTML = pagHtml;
+}
+
+function renderKPIsUsers() {
+    var container = document.getElementById('kpis-users');
+    if (!container) return;
+
+    // 1. Cálculos de lógica de negocio
+    var total = usersCache.length;
+    var access = usersCache.filter(u => u.password_hash && !u.password_hash.startsWith('NO_ACCESS_')).length;
+    var field = total - access;
+
+    // 2. Construcción del HTML con estructura card-kpi (MTPC Standard)
+    var html = '';
+
+    // KPI 1: Equipo Total (Azul)
+    html += '<div class="col-md-4 animate__animated animate__fadeIn">' +
+            '<div class="card-kpi kpi-blue">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-users"></i></div>' +
+            '<div>' +
+                '<div class="kpi-title">Equipo Total</div>' +
+                '<div class="kpi-value">' + total + '</div>' +
+                '<div class="kpi-subtitle">Personal registrado</div>' +
+            '</div></div></div>';
+
+    // KPI 2: Usuarios con Acceso (Verde)
+    html += '<div class="col-md-4 animate__animated animate__fadeIn" style="animation-delay: 0.1s;">' +
+            '<div class="card-kpi kpi-green">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-user-check"></i></div>' +
+            '<div>' +
+                '<div class="kpi-title">Acceso Web</div>' +
+                '<div class="kpi-value">' + access + '</div>' +
+                '<div class="kpi-subtitle">Credenciales activas</div>' +
+            '</div></div></div>';
+
+    // KPI 3: Solo Campo (Amarillo)
+    html += '<div class="col-md-4 animate__animated animate__fadeIn" style="animation-delay: 0.2s;">' +
+            '<div class="card-kpi kpi-yellow">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-toolbox"></i></div>' +
+            '<div>' +
+                '<div class="kpi-title">Solo Campo</div>' +
+                '<div class="kpi-value">' + field + '</div>' +
+                '<div class="kpi-subtitle">Sin acceso a sistema</div>' +
+            '</div></div></div>';
+
+    container.innerHTML = html;
+}
+
+function abrirOffcanvasUsuario(id = null) {
+    var u = id ? usersCache.find(x => x.id === id) : null;
+    document.getElementById('off-user-title').innerText = id ? 'Editar Miembro' : 'Nuevo Miembro';
+    document.getElementById('user-id').value = id || '';
+    document.getElementById('user-name').value = u ? u.nombre_completo : '';
+    document.getElementById('user-email').value = u ? u.email : '';
+    document.getElementById('user-rol').value = u ? u.rol : 'Técnico';
+    document.getElementById('user-pass').value = '';
+    
+    var hasAccess = u && u.password_hash && !u.password_hash.startsWith('NO_ACCESS_');
+    document.getElementById('user-access').checked = hasAccess;
+    toggleUserAccess(hasAccess);
+    new bootstrap.Offcanvas(document.getElementById('offcanvasUsuario')).show();
+}
+
+function toggleUserAccess(v) { document.getElementById('access-fields').style.display = v ? 'block' : 'none'; }
+
+function toggleTreeExclusive(element) {
+    // Diagnóstico: Abre la consola (F12) y mira si sale este mensaje al hacer click
+    console.log("--> Intentando abrir acordeón...", element);
+
+    // 1. Ubicamos el contenedor principal (.tree-group)
+    const currentGroup = element.closest('.tree-group');
+    
+    if (!currentGroup) {
+        console.error("ERROR: No se encontró el contenedor .tree-group");
+        return;
+    }
+
+    // 2. Guardamos estado actual
+    const wasActive = currentGroup.classList.contains('active');
+    
+    // 3. CERRAR TODOS (Exclusividad)
+    // Buscamos en el padre directo para no cerrar otros árboles de otras columnas
+    const container = currentGroup.parentElement;
+    const allGroups = container.querySelectorAll('.tree-group');
+    
+    allGroups.forEach(group => {
+        group.classList.remove('active');
+    });
+
+    // 4. ABRIR SOLO SI ESTABA CERRADO
+    if (!wasActive) {
+        currentGroup.classList.add('active');
+        console.log("--> Clase 'active' añadida. Debería abrirse.");
+    }
+}
+function guardarUsuario() {
+    var id = document.getElementById('user-id').value;
+    var data = { nombre_completo: document.getElementById('user-name').value, email: document.getElementById('user-email').value, rol: document.getElementById('user-rol').value, estado: true };
+    if(!data.nombre_completo || !data.email) return StitchFeedback.error("Faltan datos");
+
+    var access = document.getElementById('user-access').checked;
+    if(access) {
+        var p = document.getElementById('user-pass').value;
+        if(!id && !p) return StitchFeedback.error("Contraseña obligatoria");
+        if(p) data.password_hash = p;
+    } else {
+        // La lógica de NO_ACCESS_ ya está en el servidor (Srv_Auth.gs), pero podemos enviarla vacía o dejar que el servidor decida. 
+        // Para asegurar compatibilidad con tu Srv_Auth actual, enviamos null si el servidor lo maneja, o un dummy.
+        // EN TU SRV_AUTH V2: "if (!datos.password_hash) datos.password_hash = ...". Así que aquí no enviamos nada.
+        if(!id) data.password_hash = null; 
+    }
+
+    StitchFeedback.loading('Guardando...');
+    
+    // LLAMADA V2: Srv_Auth.gs -> srvGuardarUsuario
+    google.script.run.withSuccessHandler(r => {
+        if(r.exito) { StitchFeedback.success('Guardado'); bootstrap.Offcanvas.getInstance(document.getElementById('offcanvasUsuario')).hide(); cargarUsuarios(); }
+        else StitchFeedback.error(r.error);
+    }).srvGuardarUsuario(data, id || null); 
+}
+
+// ==========================================
+// 3. LÓGICA MAESTROS (Conecta con Srv_Maestros.gs)
+// ==========================================
+function cargarMaestros() {
+    // LLAMADA V2: Srv_Maestros.gs -> srvCargarMaestros
+    google.script.run.withSuccessHandler(res => {
+        if(res.exito) {
+    // Filtro flexible: Si es 'PRODUCTO' va a la col 1. Si es 'EMPRESA' o 'PROVEEDOR' va a la col 2.
+    masterCache.catsProd = res.datos.categorias.filter(c => c.tipo === 'PRODUCTO');
+    masterCache.catsPartner = res.datos.categorias.filter(c => c.tipo === 'PROVEEDOR' || c.tipo === 'PROVEEDOR');
+    
+    masterCache.subsProd = res.datos.subcategorias;
+    masterCache.ubicaciones = res.datos.ubicaciones;
+    masterCache.cuentas = res.datos.cuentas;
+    
+    // Mandamos a dibujar las columnas
+    renderColProducts();
+    renderColSimple('col-cat-partner', masterCache.catsPartner, 'CAT_PARTNER', 'fa-briefcase');
+    renderColSimple('col-ubic', masterCache.ubicaciones, 'UBICACION', 'fa-map-pin');
+    renderColSimple('col-cuentas', masterCache.cuentas, 'CUENTA', 'fa-wallet');
+} else {
+            StitchFeedback.error("Error cargando maestros");
+        }
+    }).srvCargarMaestros(); 
+}
+
+function renderColProducts() {
+    var div = document.getElementById('col-cat-prod');
+    if (!div) return;
+
+    var html = masterCache.catsProd.map(cat => {
+        var subs = masterCache.subsProd.filter(s => s.categoria_id === cat.id);
+        
+        return `
+            <div class="tree-group mb-3 position-relative z-1 animate__animated animate__fadeIn">
+                <div class="config-list-item d-flex align-items-center gap-3 p-3 cursor-pointer" onclick="toggleTreeExclusive(this)">
+                    <i class="fa-solid fa-folder text-warning fs-4"></i>
+                    <div class="flex-grow-1">
+                        <h6 class="m-0 fw-bold text-dark font-head" style="font-size: 0.9rem;">${cat.nombre}</h6>
+                        <small class="text-muted" style="font-size: 0.75rem;">${subs.length} Items</small>
+                    </div>
+                    
+                    <div class="action-hover-group d-flex gap-1 me-2">
+                        <button class="btn-action-circle" onclick="event.stopPropagation(); abrirOffcanvasMaestro('CAT', ${cat.id}, '${cat.nombre}')">
+                            <i class="fa-solid fa-pen" style="font-size: 0.75rem;"></i>
+                        </button>
+                    </div>
+                    <i class="fa-solid fa-chevron-right text-muted arrow-icon" style="font-size: 0.9rem;"></i>
+                </div>
+
+                <div class="tree-children-block ms-4 ps-3 border-start mt-2">
+                    ${subs.map(s => `
+                        <div class="config-child-row d-flex align-items-center justify-content-between py-2 border-bottom border-light">
+                            <span class="text-muted fw-medium" style="font-size: 0.85rem;">
+                                <i class="fa-solid fa-minus me-2 opacity-50" style="font-size: 0.6rem;"></i>${s.nombre}
+                            </span>
+                            <div class="action-hover-group d-flex gap-1">
+                                <button class="btn-action-circle" onclick="abrirOffcanvasMaestro('SUBCAT', ${s.id}, '${s.nombre}', ${cat.id})"><i class="fa-solid fa-pen" style="font-size: 0.7rem;"></i></button>
+                                <button class="btn-action-circle danger" onclick="eliminarMaestro('SUBCAT', ${s.id})"><i class="fa-solid fa-trash" style="font-size: 0.7rem;"></i></button>
+                            </div>
+                        </div>
+                    `).join('')}
+                    
+                    <button class="btn btn-sm w-100 text-start text-primary fw-bold mt-2 p-1" style="font-size: 0.8rem; background: transparent;" onclick="abrirOffcanvasMaestro('SUBCAT', null, null, ${cat.id}, '${cat.nombre}')">
+                        <i class="fa-solid fa-plus me-1"></i> Agregar Subcategoría
+                    </button>
+                </div>
+            </div>`;
+    }).join('');
+
+    // Botón final estilo SaaS
+    // Botón final usando tu Core CSS (btn-std)
+    html += `
+        <div class="mt-4 pt-3 border-top position-relative z-1">
+            <button class="btn-std btn-std-outline w-100 shadow-sm" onclick="abrirOffcanvasMaestro('CAT_PROD')">
+                <i class="fa-solid fa-plus"></i> Gestionar Categorías
+            </button>
+        </div>
+    `;
+
+    div.innerHTML = html || '<div class="text-center py-5 opacity-25"><i class="fa-solid fa-folder-open fs-1"></i></div>';
+}
+
+function toggleAccordion(element) {
+    const item = element.parentElement;
+    const isActive = item.classList.contains('active');
+
+    // Opcional: Cerrar otros acordeones abiertos en la misma columna
+    const container = item.parentElement;
+    container.querySelectorAll('.stitch-accordion-item').forEach(el => {
+        el.classList.remove('active');
+    });
+
+    // Alternar el estado actual
+    if (!isActive) {
+        item.classList.add('active');
+    }
+}
+
+function renderColSimple(id, data, type, icon) {
+    var div = document.getElementById(id);
+    if (!div) return;
+
+    var colorClass = 'text-muted';
+    var bgClass = 'bg-light';
+    
+    if (type === 'CAT_PARTNER') { colorClass = 'text-warning'; bgClass = 'bg-warning bg-opacity-10'; }
+    if (type === 'UBICACION')   { colorClass = 'text-success'; bgClass = 'bg-success bg-opacity-10'; }
+    if (type === 'CUENTA')      { colorClass = 'text-info';    bgClass = 'bg-info bg-opacity-10'; }
+
+    var html = '';
+
+    if (!data || data.length === 0) {
+        html += '<div class="text-center py-4 opacity-25"><i class="fa-solid fa-folder-open fs-1 mb-2"></i><p class="small m-0">Sin registros</p></div>';
+    } else {
+        // --- DISEÑO CUADRÍCULA (SOCIOS) ---
+        if (type === 'CAT_PARTNER') {
+            // El p-1 aquí evita que el borde azul se corte por los costados
+            html += '<div class="row g-2 mb-2 p-1">';
+            data.forEach(item => {
+                html += `
+                    <div class="col-6 animate__animated animate__fadeIn">
+                        <div class="config-grid-card h-100" onclick="abrirOffcanvasMaestro('${type}', ${item.id})">
+                            
+                            <div class="action-hover-group position-absolute top-0 end-0 m-2">
+                                <button class="btn-action-circle" style="width: 26px; height: 26px;" onclick="event.stopPropagation(); abrirOffcanvasMaestro('${type}', ${item.id})">
+                                    <i class="fa-solid fa-pen" style="font-size: 0.65rem;"></i>
+                                </button>
+                            </div>
+
+                            <div class="config-grid-icon ${bgClass} ${colorClass} mt-2">
+                                <i class="fa-solid ${icon}"></i>
+                            </div>
+                            <p class="config-grid-title" title="${item.nombre}">${item.nombre}</p>
+                        </div>
+                    </div>`;
+            });
+            html += '</div>';
+        } 
+        // --- DISEÑO TARJETAS (UBICACIONES Y CUENTAS) ---
+        else {
+            // El p-1 evita que el shadow-sm se corte
+            html += '<div class="p-1">';
+            data.forEach(item => {
+                var xtra = type === 'CUENTA' 
+                    ? `<p class="m-0 mt-1 text-muted" style="font-size:0.7rem;">Pre: <span class="fw-bold text-dark">${item.prefijo||'-'}</span> | Corr: <span class="fw-bold text-dark">${item.correlativo_actual||0}</span></p>` 
+                    : '';
+                    
+                html += `
+                    <div class="config-block-card animate__animated animate__fadeIn" onclick="abrirOffcanvasMaestro('${type}', ${item.id})">
+                        <div class="config-block-icon ${colorClass}">
+                            <i class="fa-solid ${icon} fs-6"></i>
+                        </div>
+                        <div class="flex-grow-1 min-w-0 align-self-center">
+                            <p class="config-item-title text-truncate m-0">${item.nombre}</p>
+                            ${xtra}
+                        </div>
+                        
+                        <div class="action-hover-group ms-2 align-self-center">
+                            <button class="btn-action-circle" onclick="event.stopPropagation(); abrirOffcanvasMaestro('${type}', ${item.id})">
+                                <i class="fa-solid fa-pen" style="font-size: 0.75rem;"></i>
+                            </button>
+                        </div>
+                    </div>`;
+            });
+            html += '</div>';
+        }
+    }
+
+    // --- BOTÓN INFERIOR (USANDO TU CORE CSS btn-std) ---
+    var btnText = type === 'CAT_PARTNER' ? 'Añadir Nuevo Socio' : (type === 'UBICACION' ? 'Añadir Ubicación' : 'Añadir Cuenta');
+    
+    html += `
+        <div class="mt-4 pt-3 border-top position-relative z-1">
+            <button class="btn-std btn-std-outline w-100 shadow-sm" onclick="abrirOffcanvasMaestro('${type}')">
+                <i class="fa-solid fa-plus me-2"></i> ${btnText}
+            </button>
+        </div>
+    `;
+
+    div.innerHTML = html;
+}
+
+function abrirOffcanvasMaestro(type, id=null, name='', pId=null, pName='') {
+    editMasterId = id; editMasterType = type;
+    document.getElementById('master-id').value = id||'';
+    document.getElementById('master-parent-id').value = pId||'';
+    
+    var item = id ? (type==='SUBCAT'?masterCache.subsProd:(type==='UBICACION'?masterCache.ubicaciones:(type==='CUENTA'?masterCache.cuentas:masterCache.catsProd.concat(masterCache.catsPartner)))).find(x=>x.id===id) : null;
+    document.getElementById('master-name').value = item ? item.nombre : '';
+    document.getElementById('off-master-title').innerText = (id?'Editar ':'Nueva ') + type;
+    document.getElementById('off-master-sub').innerText = type;
+
+    // --- CAMBIAR ICONO Y COLOR DE LA CABECERA ---
+    var iconBox = document.getElementById('off-master-icon-box');
+    var icon = document.getElementById('off-master-icon');
+    iconBox.className = 'rounded-3 d-flex align-items-center justify-content-center'; // Reset
+    
+    if(type.includes('CAT_PROD') || type === 'SUBCAT') { iconBox.classList.add('bg-primary', 'bg-opacity-10', 'text-primary'); icon.className = 'fa-solid fa-folder-tree fs-5'; }
+    if(type === 'CAT_PARTNER') { iconBox.classList.add('bg-warning', 'bg-opacity-10', 'text-warning'); icon.className = 'fa-solid fa-handshake fs-5'; }
+    if(type === 'UBICACION')   { iconBox.classList.add('bg-success', 'bg-opacity-10', 'text-success'); icon.className = 'fa-solid fa-map-location-dot fs-5'; }
+    if(type === 'CUENTA')      { iconBox.classList.add('bg-info', 'bg-opacity-10', 'text-info'); icon.className = 'fa-solid fa-wallet fs-5'; }
+    
+    // --- INYECTAR CAMPOS DINÁMICOS CON ESTILO MD3 CORRECTO ---
+    var fields = document.getElementById('master-dynamic-fields');
+    fields.innerHTML = '';
+    
+    if(type === 'UBICACION') {
+        fields.innerHTML = `
+            <div class="md3-input-wrapper mt-2">
+                <div class="md3-input-group">
+                    <i class="fa-solid fa-align-left text-muted opacity-50 ms-1 me-2"></i>
+                    <input type="text" id="m-desc" class="md3-input-field" placeholder="Ej. Almacén Central" value="${item?item.descripcion||'':''}">
+                </div>
+                <label class="md3-label">Descripción</label>
+            </div>`;
+    }
+    if(type === 'CUENTA') {
+        fields.innerHTML = `
+            <div class="row g-3 mt-1">
+                <div class="col-6">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fa-solid fa-hashtag text-muted opacity-50 ms-1 me-2"></i>
+                            <input type="text" id="m-pref" class="md3-input-field text-uppercase" placeholder="Ej. BCP" value="${item?item.prefijo||'':''}">
+                        </div>
+                        <label class="md3-label">Prefijo</label>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fa-solid fa-arrow-up-1-9 text-muted opacity-50 ms-1 me-2"></i>
+                            <input type="number" id="m-corr" class="md3-input-field font-monospace" value="${item?item.correlativo_actual||0:0}">
+                        </div>
+                        <label class="md3-label">Correlativo</label>
+                    </div>
+                </div>
+            </div>`;
+    }
+    
+    new bootstrap.Offcanvas(document.getElementById('offcanvasMaestro')).show();
+}
+
+function renderKPIsMasters() {
+    var container = document.getElementById('kpis-masters');
+    if (!container) return;
+
+    // 1. Cálculos de lógica de negocio (Caché maestra)
+    var totalProductos = masterCache.catsProd.length + masterCache.subsProd.length;
+    var totalSocios = masterCache.catsPartner.length;
+    var totalUbicaciones = masterCache.ubicaciones.length;
+    var totalCuentas = masterCache.cuentas.length;
+
+    // 2. Construcción del HTML con estructura card-kpi (MTPC Standard)
+    var html = '';
+
+    // KPI 1: Productos (Azul)
+    html += '<div class="col-md-3 col-sm-6 animate__animated animate__fadeIn">' +
+            '<div class="card-kpi kpi-blue">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-folder-tree"></i></div>' +
+            '<div>' +
+                '<div class="kpi-title">Total Catálogo</div>' +
+                '<div class="kpi-value">' + totalProductos + '</div>' +
+                '<div class="kpi-subtitle">Categorías y Sub</div>' +
+            '</div></div></div>';
+
+    // KPI 2: Socios (Amarillo)
+    html += '<div class="col-md-3 col-sm-6 animate__animated animate__fadeIn" style="animation-delay: 0.1s;">' +
+            '<div class="card-kpi kpi-yellow">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-handshake"></i></div>' +
+            '<div>' +
+                '<div class="kpi-title">Tipos de Socio</div>' +
+                '<div class="kpi-value">' + totalSocios + '</div>' +
+                '<div class="kpi-subtitle">Clasificaciones</div>' +
+            '</div></div></div>';
+
+    // KPI 3: Ubicaciones (Verde)
+    html += '<div class="col-md-3 col-sm-6 animate__animated animate__fadeIn" style="animation-delay: 0.2s;">' +
+            '<div class="card-kpi kpi-green">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-map-location-dot"></i></div>' +
+            '<div>' +
+                '<div class="kpi-title">Ubicaciones</div>' +
+                '<div class="kpi-value">' + totalUbicaciones + '</div>' +
+                '<div class="kpi-subtitle">Puntos físicos</div>' +
+            '</div></div></div>';
+
+    // KPI 4: Cuentas (Celeste/Info)
+    html += '<div class="col-md-3 col-sm-6 animate__animated animate__fadeIn" style="animation-delay: 0.3s;">' +
+            '<div class="card-kpi kpi-info">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-wallet"></i></div>' +
+            '<div>' +
+                '<div class="kpi-title">Cuentas Fin.</div>' +
+                '<div class="kpi-value">' + totalCuentas + '</div>' +
+                '<div class="kpi-subtitle">Bancos y Cajas</div>' +
+            '</div></div></div>';
+
+    container.innerHTML = html;
+}
+
+function cargarMaestros() {
+    // LLAMADA V2: Srv_Maestros.gs -> srvCargarMaestros
+    google.script.run.withSuccessHandler(res => {
+        if(res.exito) {
+            masterCache.catsProd = res.datos.categorias.filter(c => c.tipo === 'PRODUCTO');
+            masterCache.catsPartner = res.datos.categorias.filter(c => c.tipo === 'PROVEEDOR' || c.tipo === 'PROVEEDOR');
+            
+            masterCache.subsProd = res.datos.subcategorias;
+            masterCache.ubicaciones = res.datos.ubicaciones;
+            masterCache.cuentas = res.datos.cuentas;
+            
+            // Mandamos a dibujar las columnas
+            renderColProducts();
+            renderColSimple('col-cat-partner', masterCache.catsPartner, 'CAT_PARTNER', 'fa-briefcase');
+            renderColSimple('col-ubic', masterCache.ubicaciones, 'UBICACION', 'fa-map-pin');
+            renderColSimple('col-cuentas', masterCache.cuentas, 'CUENTA', 'fa-wallet');
+
+            // NUEVO: Dibujar los KPIs
+            renderKPIsMasters(); 
+
+        } else {
+            StitchFeedback.error("Error cargando maestros");
+        }
+    }).srvCargarMaestros(); 
+}
+
+function guardarMaestro() {
+    var id = editMasterId;
+    var data = { nombre: document.getElementById('master-name').value };
+    if(!data.nombre) return StitchFeedback.error("Nombre requerido");
+    
+    var table = '';
+    if(editMasterType === 'CAT_PROD') { table='categorias'; data.tipo='PRODUCTO'; data.activo=true; }
+    if(editMasterType === 'CAT_PARTNER') { table='categorias'; data.tipo='PROVEEDOR'; data.activo=true; }
+    if(editMasterType === 'SUBCAT') { table='subcategorias'; data.categoria_id=parseInt(document.getElementById('master-parent-id').value); data.activo=true; }
+    if(editMasterType === 'UBICACION') { table='ubicaciones'; data.descripcion=document.getElementById('m-desc').value; }
+    if(editMasterType === 'CUENTA') { table='cuentas_pago'; data.prefijo=document.getElementById('m-pref').value; data.correlativo_actual=parseInt(document.getElementById('m-corr').value); data.activo=true; }
+
+    StitchFeedback.loading('Guardando...');
+    
+    // LLAMADA V2: Srv_Maestros.gs -> srvGuardarMaestro
+    google.script.run.withSuccessHandler(r => {
+        if(r.exito) { StitchFeedback.success('Listo'); bootstrap.Offcanvas.getInstance(document.getElementById('offcanvasMaestro')).hide(); cargarMaestros(); }
+        else { StitchFeedback.error(r.error); }
+    }).srvGuardarMaestro(table, data, id || null); 
+}
+</script>

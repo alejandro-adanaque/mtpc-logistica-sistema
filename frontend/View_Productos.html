@@ -1,0 +1,95 @@
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3 animate__animated animate__fadeIn">
+    <div>
+        <h2 class="fw-bold m-0 text-primary font-head">Inventario Maestro</h2>
+        <p class="text-muted m-0 small font-body">Gestión de stock, precios y trazabilidad de activos.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn-std btn-std-outline shadow-sm" onclick="abrirHistorialGlobal()">
+            <i class="fa-solid fa-clock-rotate-left"></i> Historial
+        </button>
+        <button class="btn-std btn-std-primary shadow-sm" onclick="abrirOffcanvasProducto()">
+            <i class="fa-solid fa-plus"></i> Nuevo Producto
+        </button>
+    </div>
+</div>
+
+<div class="row g-4 mb-4" id="metrics-container">
+    <div class="col-12 text-center py-3"><div class="stitch-spinner mx-auto"></div></div>
+</div>
+
+<div class="card-std bg-white animate__animated animate__fadeInUp">
+    
+    <div class="toolbar-std p-3 border-bottom d-flex align-items-center flex-wrap gap-3">
+        <div class="d-flex gap-2 flex-grow-1">
+            <div style="min-width: 180px;">
+                <div class="input-std-wrapper">
+                    <i class="fa-solid fa-layer-group input-std-icon text-muted small"></i>
+                    <select id="filtro-cat" class="input-std cursor-pointer" onchange="filtrarProductos()">
+                        <option value="">Categorías</option>
+                    </select>
+                </div>
+            </div>
+            <div style="min-width: 180px;">
+                <div class="input-std-wrapper">
+                    <i class="fa-solid fa-tag input-std-icon text-muted small"></i>
+                    <select id="filtro-marca" class="input-std cursor-pointer" onchange="filtrarProductos()">
+                        <option value="">Todas las Marcas</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="ms-auto" style="min-width: 300px;">
+            <div class="input-std-wrapper">
+                <i class="fa-solid fa-magnifying-glass input-std-icon"></i>
+                <input type="text" id="buscador-prod" class="input-std" placeholder="Buscar SKU o nombre..." onkeyup="filtrarProductos()">
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table-std w-100">
+            <thead>
+                <tr>
+                    <th class="ps-4">Producto</th>
+                    <th>Ubicación</th>
+                    <th class="text-center">Stock</th>
+                    <th class="text-end">Costo (S/)</th>
+                    <th class="text-end">Venta (S/)</th>
+                    <th class="text-end pe-4">Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="tabla-prod-body"></tbody>
+        </table>
+    </div>
+
+    <div class="pagination-std bg-white border-top">
+        <span class="text-muted small me-auto font-head fw-bold" id="info-paginacion-prod">Cargando...</span>
+        <nav>
+            <ul class="pagination pagination-stitch mb-0" id="paginacion-container-prod"></ul>
+        </nav>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasProdForm" style="width: 550px;">
+    <div class="px-4 py-4 border-bottom d-flex align-items-center justify-content-between bg-white sticky-top z-10">
+        <div>
+            <h5 class="fw-bold font-head m-0 text-dark" id="offcanvas-prod-title">Detalles del Ítem</h5>
+            <p class="text-muted small m-0 font-body">Configuración técnica y comercial</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body offcanvas-body-clean no-scrollbar" id="offcanvas-prod-body">
+        </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasHistorialGlobal" style="width: 480px;">
+    <div class="px-4 py-4 border-bottom bg-white d-flex align-items-center justify-content-between">
+        <div>
+            <h5 class="fw-bold text-dark font-head m-0">Trazabilidad</h5>
+            <p class="text-muted small m-0 font-body">Últimos 7 días de movimientos</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body p-0 font-body custom-scrollbar" id="feed-global-container"></div>
+</div>

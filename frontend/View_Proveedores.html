@@ -1,0 +1,188 @@
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3 animate__animated animate__fadeIn">
+    <div>
+        <h2 class="fw-bold m-0 text-primary font-head"></h2>
+        <p class="text-muted m-0 small font-body"></p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn-std btn-std-primary shadow-sm" onclick="abrirOffcanvasProveedor()">
+            <i class="fa-solid fa-plus"></i>
+            Nuevo Proveedor
+        </button>
+    </div>
+</div>
+
+<div class="row g-4 mb-4" id="metrics-prov-container"></div>
+
+<div class="card-std bg-white animate__animated animate__fadeInUp">
+    
+    <div class="toolbar-std p-3 border-bottom">
+        
+        <div class="d-flex gap-3 flex-wrap flex-grow-1">
+            <div style="min-width: 200px;">
+                <div class="input-std-wrapper">
+                    <i class="fa-solid fa-filter input-std-icon"></i>
+                    <select id="filtro-cat-prov" class="input-std cursor-pointer" onchange="aplicarFiltrosProv(true)">
+                        <option value="">Todas las Categorías</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div style="min-width: 180px;">
+                <div class="input-std-wrapper">
+                    <i class="fa-solid fa-arrow-down-short-wide input-std-icon"></i>
+                    <select id="filtro-orden-prov" class="input-std cursor-pointer" onchange="aplicarFiltrosProv(true)">
+                        <option value="az">Orden: A - Z</option>
+                        <option value="za">Orden: Z - A</option>
+                        <option value="new">Más Recientes</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="ms-auto" style="min-width: 280px;">
+            <div class="input-std-wrapper">
+                <i class="fa-solid fa-magnifying-glass input-std-icon"></i>
+                <input type="text" id="buscador-prov" class="input-std" placeholder="Buscar RUC, Razón Social..." onkeyup="aplicarFiltrosProv(true)">
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table-std w-100">
+            <thead>
+                <tr>
+                    <th class="ps-4">Empresa / RUC</th>
+                    <th>Categoría</th>
+                    <th>Contacto</th>
+                    <th>Teléfono</th>
+                    <th class="text-end pe-4">Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="tabla-prov-body">
+                <tr>
+                    <td colspan="5" class="text-center py-5">
+                        <div class="stitch-spinner mx-auto"></div>
+                        <p class="text-muted small mt-2">Cargando directorio...</p>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pagination-std bg-white">
+        <span class="text-muted small me-auto font-head fw-bold" id="info-paginacion-prov">Cargando...</span>
+        <div id="paginacion-container-prov" class="d-flex gap-1"></div>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasProveedor" style="width: 500px;">
+    
+    <div class="px-4 py-4 border-bottom d-flex align-items-center justify-content-between bg-white">
+        <div>
+            <h5 class="fw-bold font-head m-0 text-dark" id="offcanvasProvTitle">Información del Socio</h5>
+            <p class="text-muted small m-0 font-body" id="offcanvasProvSubtitle">Gestión de datos fiscales y operativos</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+
+    <div class="offcanvas-body offcanvas-body-clean no-scrollbar">
+        <input type="hidden" id="prov-id">
+
+        <div class="offcanvas-section">
+            <div class="offcanvas-section-title">
+                <i class="fas fa-id-card-clip"></i> Datos de Identidad
+            </div>
+            
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-fingerprint text-muted opacity-50"></i>
+                            <input type="text" id="prov-ruc" class="md3-input-field fw-bold" placeholder="Número de RUC" maxlength="11">
+                        </div>
+                        <label class="md3-label">RUC / ID Fiscal</label>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-building text-muted opacity-50"></i>
+                            <input type="text" id="prov-razon" class="md3-input-field" placeholder="Nombre o Razón Social">
+                        </div>
+                        <label class="md3-label">Razón Social</label>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-tag text-muted opacity-50"></i>
+                            <select id="prov-categoria" class="md3-input-field cursor-pointer"></select>
+                        </div>
+                        <label class="md3-label">Categoría</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="offcanvas-section">
+            <div class="offcanvas-section-title">
+                <i class="fas fa-map-location-dot"></i> Contacto y Ubicación
+            </div>
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-location-dot text-muted opacity-50"></i>
+                            <input type="text" id="prov-dir" class="md3-input-field" placeholder="Dirección completa">
+                        </div>
+                        <label class="md3-label">Dirección Fiscal</label>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-user text-muted opacity-50"></i>
+                            <input type="text" id="prov-contacto" class="md3-input-field" placeholder="Nombre">
+                        </div>
+                        <label class="md3-label">Contacto</label>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-phone text-muted opacity-50"></i>
+                            <input type="text" id="prov-tel" class="md3-input-field" placeholder="Celular">
+                        </div>
+                        <label class="md3-label">Teléfono</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="offcanvas-section">
+            <div class="offcanvas-section-title">
+                <i class="fas fa-vault"></i> Información de Pago
+            </div>
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-credit-card text-muted opacity-50"></i>
+                            <input type="text" id="prov-banco" class="md3-input-field font-monospace" placeholder="Número de cuenta o CCI">
+                        </div>
+                        <label class="md3-label">Cuenta Bancaria / CCI</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="p-4 border-top bg-white d-flex gap-2">
+        <button class="btn btn-light flex-grow-1 font-head text-muted fw-bold" data-bs-dismiss="offcanvas" style="border-radius: 0.75rem;">
+            Cerrar
+        </button>
+        <button class="btn-std btn-std-primary flex-grow-1 shadow-sm font-head" onclick="guardarProveedor(this)" style="padding: 0.8rem;">
+            <i class="fas fa-save me-2"></i> Guardar Proveedor
+        </button>
+    </div>
+</div>

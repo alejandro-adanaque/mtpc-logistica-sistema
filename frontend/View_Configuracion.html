@@ -1,0 +1,314 @@
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+    <div>
+        <h2 class="fw-bold m-0" style="color: var(--primary); font-family: var(--font-head);">Configuración</h2>
+        <p class="text-muted m-0 small font-body">Gestión de equipo y parámetros maestros.</p>
+    </div>
+    
+    <ul class="nav nav-pills-stitch" id="pills-tab" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#view-users" type="button" onclick="cargarUsuarios()">
+                <i class="fa-solid fa-users-gear me-2"></i>Equipo
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#view-masters" type="button" onclick="cargarMaestros()">
+                <i class="fa-solid fa-layer-group me-2"></i>Maestros
+            </button>
+        </li>
+    </ul>
+</div>
+
+<div class="tab-content" id="pills-tabContent">
+    
+    <div class="tab-pane fade show active" id="view-users" role="tabpanel">
+        
+        <div class="row g-4 mb-4" id="kpis-users">
+            <div class="col-12 text-center py-3">
+                <div class="stitch-spinner mx-auto"></div>
+            </div>
+        </div>
+
+        <div class="card-std bg-white shadow-sm">
+            <div class="toolbar-std p-3 border-bottom d-flex align-items-center flex-wrap gap-3">
+                <div class="d-flex gap-2 flex-grow-1">
+                    <div style="min-width: 200px;">
+                        <div class="input-std-wrapper">
+                            <i class="fa-solid fa-user-shield input-std-icon text-muted small"></i>
+                            <select id="filter-role" class="input-std cursor-pointer" onchange="filtrarUsuariosUI()">
+                                <option value="">Todos los Roles</option>
+                                <option value="Administrador">Administradores</option>
+                                <option value="Técnico">Técnicos</option>
+                                <option value="Logística">Logística</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ms-auto d-flex gap-3" style="min-width: 320px;">
+                    <div class="input-std-wrapper flex-grow-1">
+                        <i class="fa-solid fa-magnifying-glass input-std-icon"></i>
+                        <input type="text" id="search-user" class="input-std" placeholder="Buscar nombre o email..." onkeyup="filtrarUsuariosUI()">
+                    </div>
+                    <button class="btn-std btn-std-primary shadow-sm" onclick="abrirOffcanvasUsuario()">
+                        <i class="fa-solid fa-plus"></i> Nuevo
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table-std w-100 font-body">
+                    <thead>
+                        <tr>
+                            <th class="ps-4">Usuario</th>
+                            <th>Rol / Cargo</th>
+                            <th class="text-center">Acceso</th>
+                            <th class="text-center">Estado</th>
+                            <th class="pe-4 text-end">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabla-users-body"></tbody>
+                </table>
+            </div>
+
+            <div class="pagination-std bg-white border-top">
+                <span class="text-muted small me-auto font-head fw-bold" id="info-pag-user"></span>
+                <nav><ul class="pagination pagination-stitch mb-0" id="pag-user"></ul></nav>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-pane fade h-100" id="view-masters" role="tabpanel">
+        <div class="row g-4 mb-4" id="kpis-masters">
+            <div class="col-12 text-center py-3">
+                <div class="stitch-spinner mx-auto"></div>
+            </div>
+        </div>
+        <div class="row g-4 h-100">
+            
+            <div class="col-lg-3 col-md-6 h-100">
+                <div class="master-tree-container">
+                    <div class="blur-glow bg-primary"></div>
+                    
+                    <div class="d-flex justify-content-between align-items-start position-relative z-1">
+                        <div class="header-icon-xl bg-primary bg-opacity-10 text-primary">
+                            <i class="fa-solid fa-folder-tree"></i>
+                        </div>
+                        <button class="btn btn-sm text-muted hover-bg-light rounded-3" onclick="abrirOffcanvasMaestro('CAT_PROD')">
+                            <i class="fa-solid fa-ellipsis"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="mt-3 mb-4 position-relative z-1">
+                        <h3 class="fw-bold text-dark font-head m-0" style="font-size: 1.3rem;">Productos</h3>
+                        <p class="text-muted m-0 mt-1" style="font-size: 0.8rem;">Configura el catálogo</p>
+                    </div>
+                    
+                    <div class="flex-grow-1 overflow-y-auto custom-scrollbar position-relative z-1 pe-2" id="col-cat-prod"></div>
+                </div>
+            </div>
+
+            <div class="col-lg-3 col-md-6 h-100">
+                <div class="master-tree-container">
+                    <div class="blur-glow bg-warning"></div>
+                    
+                    <div class="d-flex justify-content-between align-items-start position-relative z-1">
+                        <div class="header-icon-xl bg-warning bg-opacity-10 text-warning">
+                            <i class="fa-solid fa-handshake"></i>
+                        </div>
+                        <button class="btn btn-sm text-muted hover-bg-light rounded-3" onclick="abrirOffcanvasMaestro('CAT_PARTNER')">
+                            <i class="fa-solid fa-ellipsis"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="mt-3 mb-4 position-relative z-1">
+                        <h3 class="fw-bold text-dark font-head m-0" style="font-size: 1.3rem;">Socios</h3>
+                        <p class="text-muted m-0 mt-1" style="font-size: 0.8rem;">Proveedores y Clientes</p>
+                    </div>
+                    
+                    <div class="flex-grow-1 overflow-y-auto custom-scrollbar position-relative z-1 pe-2" id="col-cat-partner"></div>
+                </div>
+            </div>
+
+            <div class="col-lg-3 col-md-6 h-100">
+                <div class="master-tree-container">
+                    <div class="blur-glow bg-success"></div>
+                    
+                    <div class="d-flex justify-content-between align-items-start position-relative z-1">
+                        <div class="header-icon-xl bg-success bg-opacity-10 text-success">
+                            <i class="fa-solid fa-map-location-dot"></i>
+                        </div>
+                        <button class="btn btn-sm text-muted hover-bg-light rounded-3" onclick="abrirOffcanvasMaestro('UBICACION')">
+                            <i class="fa-solid fa-ellipsis"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="mt-3 mb-4 position-relative z-1">
+                        <h3 class="fw-bold text-dark font-head m-0" style="font-size: 1.3rem;">Ubicaciones</h3>
+                        <p class="text-muted m-0 mt-1" style="font-size: 0.8rem;">Mapa físico de inventario</p>
+                    </div>
+                    
+                    <div class="flex-grow-1 overflow-y-auto custom-scrollbar position-relative z-1 pe-2" id="col-ubic"></div>
+                </div>
+            </div>
+
+            <div class="col-lg-3 col-md-6 h-100">
+                <div class="master-tree-container">
+                    <div class="blur-glow bg-info"></div>
+                    
+                    <div class="d-flex justify-content-between align-items-start position-relative z-1">
+                        <div class="header-icon-xl bg-info bg-opacity-10 text-info">
+                            <i class="fa-solid fa-wallet"></i>
+                        </div>
+                        <button class="btn btn-sm text-muted hover-bg-light rounded-3" onclick="abrirOffcanvasMaestro('CUENTA')">
+                            <i class="fa-solid fa-ellipsis"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="mt-3 mb-4 position-relative z-1">
+                        <h3 class="fw-bold text-dark font-head m-0" style="font-size: 1.3rem;">Cuentas</h3>
+                        <p class="text-muted m-0 mt-1" style="font-size: 0.8rem;">Bancos y Correlativos</p>
+                    </div>
+                    
+                    <div class="flex-grow-1 overflow-y-auto custom-scrollbar position-relative z-1 pe-2" id="col-cuentas"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+  </div>
+</div>
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasUsuario" style="width: 450px;">
+    
+    <div class="px-4 py-4 border-bottom d-flex align-items-center justify-content-between bg-white">
+        <div>
+            <h5 class="fw-bold font-head m-0 text-dark" id="off-user-title">...</h5>
+            <p class="text-muted small m-0 font-body">Gestión de credenciales y perfil</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+
+    <div class="offcanvas-body offcanvas-body-clean no-scrollbar">
+        <input type="hidden" id="user-id">
+
+        <div class="offcanvas-section">
+            <div class="offcanvas-section-title">
+                <i class="fas fa-id-card"></i> Datos de Identidad
+            </div>
+            
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-user text-muted opacity-50"></i>
+                            <input type="text" id="user-name" class="md3-input-field" placeholder="Nombre Completo">
+                        </div>
+                        <label class="md3-label">Nombre Completo</label>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-envelope text-muted opacity-50"></i>
+                            <input type="email" id="user-email" class="md3-input-field" placeholder="Correo">
+                        </div>
+                        <label class="md3-label">Correo</label>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <i class="fas fa-user-gear text-muted opacity-50"></i>
+                            <select id="user-rol" class="md3-input-field cursor-pointer">
+                                <option value="Técnico">Técnico</option>
+                                <option value="Logística">Logística</option>
+                                <option value="Administrador">Administrador</option>
+                            </select>
+                        </div>
+                        <label class="md3-label">Rol</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="offcanvas-section">
+            <div class="offcanvas-section-title">
+                <i class="fas fa-shield-halved"></i> Seguridad
+            </div>
+
+            <div class="card-std p-3 bg-light border-dashed mb-3">
+                <div class="form-check form-switch d-flex justify-content-between ps-0 align-items-center">
+                    <label class="form-check-label fw-bold text-dark font-head mb-0" for="user-access">Acceso Web</label>
+                    <input class="form-check-input ms-3" type="checkbox" id="user-access" style="width: 2.8em; height: 1.4em;" onchange="toggleUserAccess(this.checked)">
+                </div>
+            </div>
+
+            <div id="access-fields" style="display:none;" class="animate__animated animate__fadeIn">
+                <div class="md3-input-wrapper">
+                    <div class="md3-input-group">
+                        <i class="fas fa-key text-muted opacity-50"></i>
+                        <input type="password" id="user-pass" class="md3-input-field" placeholder="Contraseña">
+                    </div>
+                    <label class="md3-label">Contraseña</label>
+                </div>
+                <p class="text-muted fst-italic mt-2" style="font-size:0.7rem">* Dejar vacío para no cambiar</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="p-4 border-top bg-white d-flex gap-2">
+        <button class="btn btn-light flex-grow-1 font-head text-muted fw-bold" data-bs-dismiss="offcanvas" style="border-radius: 0.75rem;">
+            Cerrar
+        </button>
+        <button class="btn-std btn-std-primary flex-grow-1 shadow-sm font-head" onclick="guardarUsuario()">
+            <i class="fas fa-save me-2"></i> Guardar Usuario
+        </button>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasMaestro" style="width: 420px;">
+    
+    <div class="px-4 py-4 border-bottom d-flex align-items-center justify-content-between bg-light">
+        <div class="d-flex align-items-center gap-3">
+            <div class="bg-primary bg-opacity-10 text-primary rounded-3 d-flex align-items-center justify-content-center" style="width: 42px; height: 42px; flex-shrink: 0;" id="off-master-icon-box">
+                <i class="fa-solid fa-layer-group fs-5" id="off-master-icon"></i>
+            </div>
+            <div>
+                <h5 class="fw-bold font-head m-0 text-dark" id="off-master-title" style="font-size: 1.1rem;">...</h5>
+                <p class="text-muted small m-0 font-body" id="off-master-sub">...</p>
+            </div>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+
+    <div class="offcanvas-body offcanvas-body-clean">
+        <input type="hidden" id="master-id">
+        <input type="hidden" id="master-parent-id">
+
+        <div class="offcanvas-section">
+            <div class="offcanvas-section-title">
+                <i class="fa-solid fa-sliders"></i> Información Principal
+            </div>
+            
+            <div class="md3-input-wrapper mb-4">
+                <div class="md3-input-group">
+                    <i class="fa-solid fa-tag text-muted opacity-50 ms-1 me-2"></i>
+                    <input type="text" id="master-name" class="md3-input-field fw-bold text-dark" placeholder="Ej. Laptops">
+                </div>
+                <label class="md3-label">Nombre / Etiqueta</label>
+            </div>
+
+            <div id="master-dynamic-fields"></div>
+        </div>
+    </div>
+
+    <div class="p-4 border-top bg-white d-flex gap-3">
+        <button class="btn-std btn-std-outline w-50 shadow-sm" data-bs-dismiss="offcanvas">
+            Cancelar
+        </button>
+        <button class="btn-std btn-std-primary w-50 shadow-sm" onclick="guardarMaestro()">
+            <i class="fa-solid fa-save"></i> Guardar
+        </button>
+    </div>
+</div>

@@ -1,0 +1,548 @@
+<script>
+/**
+ * MÓDULO: GESTIÓN DE PRODUCTOS V3 (Armonización Stitch)
+ * Usuario: Alejandro
+ */
+
+var cacheProductos = [];
+var cacheCategoriasProd = [];
+var cacheSubcategoriasProd = [];
+var cacheUbicacionesProd = []; // Global para mapeo de nombres
+var currentPageProd = 1;
+var itemsPerPageProd = 10;
+
+// ==========================================
+// 1. INICIALIZACIÓN
+// ==========================================
+
+function renderProductos() {
+    var container = document.getElementById('app-container');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="loader-container animate__animated animate__fadeIn">' +
+                         '<div class="stitch-spinner"></div>' +
+                         '<h5 class="fw-bold mt-3 text-primary">Cargando Inventario</h5>' +
+                         '<p class="small text-muted">Sincronizando existencias...</p>' +
+                         '</div>';
+    
+    google.script.run.withSuccessHandler(function(html) {
+        container.innerHTML = html;
+        cargarDatosIniciales();
+    }).obtenerVista('View_Productos');
+}
+
+function cargarDatosIniciales() {
+    google.script.run.withSuccessHandler(function(res) {
+        if(res.exito) {
+            cacheProductos = res.datos.productos;
+            cacheCategoriasProd = res.datos.categorias;
+            cacheSubcategoriasProd = res.datos.subcategorias;
+            cacheUbicacionesProd = res.datos.ubicaciones;
+
+            var selCat = document.getElementById('filtro-cat');
+            if (selCat) {
+                var optsCat = '<option value="">Todas las Categorías</option>';
+                cacheCategoriasProd.forEach(function(c) { optsCat += '<option value="' + c.id + '">' + c.nombre + '</option>'; });
+                selCat.innerHTML = optsCat;
+            }
+
+            var marcas = [...new Set(cacheProductos.map(function(p) { return p.marca; }).filter(Boolean))].sort();
+            var selMarca = document.getElementById('filtro-marca');
+            if (selMarca) {
+                var optsMarca = '<option value="">Todas las Marcas</option>';
+                marcas.forEach(function(m) { optsMarca += '<option value="' + m + '">' + m + '</option>'; });
+                selMarca.innerHTML = optsMarca;
+            }
+
+            actualizarMetricas(cacheProductos);
+            renderizarTablaProdPaginada();
+        } else {
+            MTPC_Toast.error("Error al cargar: " + res.error);
+        }
+    }).srvObtenerInventarioCompleto();
+}
+
+// ==========================================
+// 2. KPIS ARMONIZADOS
+// ==========================================
+
+function actualizarMetricas(datos) {
+    var total = datos.length;
+    var valorizado = datos.reduce(function(acc, p) { return acc + ((p.precio_costo_promedio||0) * (p.stock_actual||0)); }, 0);
+    var critico = datos.filter(function(p) { return (p.stock_actual||0) <= (p.stock_minimo||0); }).length;
+
+    var container = document.getElementById('metrics-container');
+    if (!container) return;
+
+    var html = '';
+    html += '<div class="col-md-4"><div class="card-kpi kpi-blue">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-box-archive"></i></div>' +
+            '<div><div class="kpi-title">Items en Catálogo</div><div class="kpi-value">' + total + '</div><div class="kpi-subtitle">Productos únicos</div></div>' +
+            '</div></div>';
+    html += '<div class="col-md-4"><div class="card-kpi kpi-green">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-sack-dollar"></i></div>' +
+            '<div><div class="kpi-title">Inversión Stock</div><div class="kpi-value">S/ ' + valorizado.toLocaleString('en-US', {minimumFractionDigits: 2}) + '</div><div class="kpi-subtitle">Costo total activos</div></div>' +
+            '</div></div>';
+    html += '<div class="col-md-4"><div class="card-kpi kpi-red">' +
+            '<div class="kpi-icon-wrapper"><i class="fa-solid fa-triangle-exclamation"></i></div>' +
+            '<div><div class="kpi-title">Reposición Urgente</div><div class="kpi-value">' + critico + '</div><div class="kpi-subtitle">Bajo stock mínimo</div></div>' +
+            '</div></div>';
+
+    container.innerHTML = html;
+}
+
+// ==========================================
+// 3. TABLA CON ACTUALIZACIÓN SILENCIOSA
+// ==========================================
+
+function filtrarProductos() { 
+    currentPageProd = 1; 
+    renderizarTablaProdPaginada(); 
+}
+
+function renderizarTablaProdPaginada() {
+    var tbody = document.getElementById('tabla-prod-body');
+    if(!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5"><div class="stitch-spinner mx-auto"></div></td></tr>';
+
+    var texto = document.getElementById('buscador-prod').value.toLowerCase();
+    var catId = document.getElementById('filtro-cat').value;
+    var marcaTxt = document.getElementById('filtro-marca').value;
+
+    var filtrados = cacheProductos.filter(function(p) {
+        var matchTexto = (p.nombre||'').toLowerCase().indexOf(texto) !== -1 || (p.sku||'').toLowerCase().indexOf(texto) !== -1;
+        var matchCat = catId ? String(p.categoria_id) === String(catId) : true;
+        var matchMarca = marcaTxt ? (p.marca === marcaTxt) : true;
+        return matchTexto && matchCat && matchMarca;
+    });
+
+    var totalItems = filtrados.length;
+    var totalPages = Math.ceil(totalItems / itemsPerPageProd) || 1;
+    if(currentPageProd > totalPages) currentPageProd = totalPages;
+    var start = (currentPageProd - 1) * itemsPerPageProd;
+    var datosPagina = filtrados.slice(start, start + itemsPerPageProd);
+    
+    if(totalItems === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">No se encontraron productos.</td></tr>';
+        document.getElementById('paginacion-container-prod').innerHTML = '';
+        return;
+    }
+
+    var h = '';
+    datosPagina.forEach(function(p) {
+        // Mapeo de Ubicación: ID -> Nombre
+        var ubiObj = cacheUbicacionesProd.find(function(u) { return u.id == p.ubicacion_id; });
+        var nombreUbicacion = ubiObj ? ubiObj.nombre : (p.ubicacion_fisica || '-');
+
+        // Lógica de salud de Stock (Pills)
+        var pillClass = 'pill-health-good';
+        var iconStock = '<i class="fa-solid fa-circle-check"></i>';
+        if (p.stock_actual <= 0) { pillClass = 'pill-health-danger'; iconStock = '<i class="fa-solid fa-skull-crossbones"></i>'; }
+        else if (p.stock_actual <= p.stock_minimo) { pillClass = 'pill-health-warning'; iconStock = '<i class="fa-solid fa-triangle-exclamation"></i>'; }
+
+        var iconType = p.tipo_producto === 'LICENCIA' ? '<i class="fa-brands fa-windows text-info"></i>' : '<i class="fa-solid fa-box text-secondary"></i>';
+        
+        h += '<tr class="align-middle border-bottom animate__animated animate__fadeIn">' +
+             '<td class="ps-4 py-3"><div class="d-flex align-items-center gap-3">' +
+             '<div class="rounded-3 bg-light border d-flex align-items-center justify-content-center" style="width:42px; height:42px;">' + iconType + '</div>' +
+             '<div><div class="fw-bold text-dark text-truncate" style="max-width:250px;">' + p.nombre + '</div>' +
+             '<div class="small text-muted"><i class="fa-regular fa-copy me-1"></i>' + p.sku + '</div></div></div></td>' +
+             '<td><span class="text-muted small">' + nombreUbicacion + '</span></td>' +
+             '<td class="text-center"><div class="stock-pill ' + pillClass + '">' + iconStock + ' ' + p.stock_actual + '</div></td>' +
+             '<td class="text-end text-muted small">S/ ' + (p.precio_costo_promedio||0).toFixed(2) + '</td>' +
+             '<td class="text-end fw-bold text-dark">S/ ' + (p.precio_venta_sugerido||0).toFixed(2) + '</td>' +
+             '<td class="pe-4 text-end"><div class="d-flex justify-content-end gap-1">' +
+                '<button class="btn-std btn-icon-only btn-std-outline shadow-sm" onclick="abrirOffcanvasProducto(' + p.id + ')"><i class="fa-solid fa-pen"></i></button>' +
+                '<button class="btn-std btn-icon-only btn-std-outline text-danger shadow-sm" onclick="eliminarProducto(' + p.id + ')"><i class="fa-regular fa-trash-can"></i></button>' +
+             '</div></td></tr>';
+    });
+    tbody.innerHTML = h;
+    actualizarPaginacionUIProd({ totalPages: totalPages, totalItems: totalItems, start: start });
+}
+
+function actualizarPaginacionUIProd(pag) {
+    var info = document.getElementById('info-paginacion-prod');
+    if(info) info.innerHTML = 'Mostrando <b>' + (pag.start + 1) + '</b> - <b>' + Math.min(pag.start + itemsPerPageProd, pag.totalItems) + '</b> de <b>' + pag.totalItems + '</b>';
+    
+    var container = document.getElementById('paginacion-container-prod');
+    if(!container) return;
+    
+    var h = '<div class="d-flex gap-1">';
+    var disPrev = currentPageProd === 1 ? 'disabled' : '';
+    var disNext = currentPageProd >= pag.totalPages ? 'disabled' : '';
+
+    h += '<button class="page-btn ' + disPrev + '" onclick="cambiarPaginaProd(' + (currentPageProd - 1) + ')"><i class="fa-solid fa-chevron-left"></i></button>';
+    
+    for(var i = 1; i <= pag.totalPages; i++) {
+        if (i === 1 || i === pag.totalPages || (i >= currentPageProd - 1 && i <= currentPageProd + 1)) {
+            var act = currentPageProd === i ? 'active' : '';
+            h += '<button class="page-btn ' + act + '" onclick="cambiarPaginaProd(' + i + ')">' + i + '</button>';
+        } else if (i === currentPageProd - 2 || i === currentPageProd + 2) {
+            h += '<span class="page-btn disabled" style="border:none; cursor:default;">...</span>';
+        }
+    }
+
+    h += '<button class="page-btn ' + disNext + '" onclick="cambiarPaginaProd(' + (currentPageProd + 1) + ')"><i class="fa-solid fa-chevron-right"></i></button>';
+    h += '</div>';
+    
+    container.innerHTML = h;
+}
+
+function cambiarPaginaProd(p) { if(p>0) { currentPageProd = p; renderizarTablaProdPaginada(); } }
+function copiarSKU(sku) { navigator.clipboard.writeText(sku).then(function() { MTPC_Toast.success('SKU Copiado'); }); }
+
+// ==========================================
+// 4. FORMULARIO CON RECÁLCULO E IGV
+// ==========================================
+
+function abrirOffcanvasProducto(idEditar) {
+    var title = document.getElementById('offcanvas-prod-title');
+    var body = document.getElementById('offcanvas-prod-body');
+    
+    // Loader inicial
+    body.innerHTML = '<div class="text-center py-5"><div class="stitch-spinner mx-auto"></div></div>';
+    
+    var prod = idEditar ? cacheProductos.find(function(p) { return p.id === idEditar; }) : null;
+    title.innerText = prod ? 'Editar Producto' : 'Nuevo Producto';
+
+    // --- 1. LÓGICA DE IGV PERSISTENTE (Estricta) ---
+    var tieneIGV = true; 
+    if (prod && prod.hasOwnProperty('tiene_igv')) {
+        tieneIGV = (prod.tiene_igv === true || prod.tiene_igv === "true");
+    }
+
+    // --- 2. RECALCULO DE MARGEN REAL ---
+    var margenInicial = 20; 
+    if (prod && prod.precio_costo_promedio > 0) {
+        var factor = tieneIGV ? 1.18 : 1.0;
+        var precioNeto = prod.precio_venta_sugerido / factor;
+        margenInicial = ((precioNeto / prod.precio_costo_promedio) - 1) * 100;
+    }
+
+    // --- 3. GENERAR OPCIONES (Categorías, Subcategorías, Ubicaciones) ---
+    var catOpts = '<option value="" disabled selected>Seleccione...</option>';
+    cacheCategoriasProd.forEach(function(c) { 
+        catOpts += '<option value="' + c.id + '" ' + (prod && prod.categoria_id == c.id ? 'selected':'') + '>' + c.nombre + '</option>'; 
+    });
+
+    var subOpts = '<option value="">Sin Subcategoría</option>';
+    if (prod && prod.categoria_id) {
+        var subs = cacheSubcategoriasProd.filter(function(s) { return String(s.categoria_id) === String(prod.categoria_id); });
+        subs.forEach(function(s) { subOpts += '<option value="' + s.id + '" ' + (prod.subcategoria_id == s.id ? 'selected':'') + '>' + s.nombre + '</option>'; });
+    }
+
+    var ubiOpts = '<option value="">Sin Ubicación</option>';
+    if (typeof cacheUbicacionesProd !== 'undefined') {
+        cacheUbicacionesProd.forEach(function(u) {
+            ubiOpts += '<option value="' + u.id + '" ' + (prod && prod.ubicacion_id == u.id ? 'selected':'') + '>' + u.nombre + '</option>';
+        });
+    }
+
+    // --- 4. CONSTRUCCIÓN DEL HTML COMPLETO ---
+    var h = '';
+    h += '<input type="hidden" id="form-id" value="' + (prod ? prod.id : '') + '">';
+    
+    // BLOQUE 1: CLASIFICACIÓN
+    h += '<div class="offcanvas-section">' +
+            '<div class="offcanvas-section-title"><i class="fas fa-tag"></i> Clasificación Técnica</div>' +
+            '<div class="row g-4">' +
+                '<div class="col-12">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><i class="fas fa-layer-group text-muted opacity-50"></i>' +
+                        '<select id="form-cat" class="md3-input-field" onchange="actualizarSubsForm(this.value)">' + catOpts + '</select></div>' +
+                        '<label class="md3-label">Categoría *</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-6">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><i class="fas fa-tags text-muted opacity-50"></i>' +
+                        '<select id="form-sub" class="md3-input-field" onchange="genName()">' + subOpts + '</select></div>' +
+                        '<label class="md3-label">Subcategoría</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-6">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><i class="fas fa-trademark text-muted opacity-50"></i>' +
+                        '<input id="form-marca" class="md3-input-field" value="' + (prod ? prod.marca : '') + '" oninput="genName()">' +
+                        '</div><label class="md3-label">Marca</label>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+         '</div>';
+
+    // BLOQUE 2: DETALLES
+    h += '<div class="offcanvas-section">' +
+            '<div class="offcanvas-section-title"><i class="fas fa-microchip"></i> Detalle del Equipo</div>' +
+            '<div class="row g-4">' +
+                '<div class="col-6">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><i class="fas fa-barcode text-muted opacity-50"></i>' +
+                        '<input id="form-modelo" class="md3-input-field" value="' + (prod ? (prod.modelo || '') : '') + '" oninput="genName()">' +
+                        '</div><label class="md3-label">Modelo</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-6">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><i class="fas fa-list-check text-muted opacity-50"></i>' +
+                        '<input id="form-serie" class="md3-input-field" value="' + (prod ? (prod.especificaciones || '') : '') + '" oninput="genName()">' +
+                        '</div><label class="md3-label">Especificaciones</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-12">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group bg-primary bg-opacity-10 border-primary"><i class="fas fa-font text-primary"></i>' +
+                        '<input id="form-nombre" class="md3-input-field fw-bold text-primary" value="' + (prod ? prod.nombre : '') + '" ' + (prod ? '' : 'readonly') + '>' +
+                        '</div><label class="md3-label text-primary">Nombre Generado</label>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+         '</div>';
+
+    // BLOQUE 3: COMERCIAL, STOCK Y UBICACIÓN
+    h += '<div class="offcanvas-section">' +
+            '<div class="offcanvas-section-title"><i class="fas fa-sack-dollar"></i> Comercial y Operativo</div>' +
+            '<div class="row g-4">' +
+                '<div class="col-4">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><input type="number" id="form-costo" class="md3-input-field fw-bold" value="' + (prod ? prod.precio_costo_promedio : 0) + '" oninput="calcPrices()"></div>' +
+                        '<label class="md3-label">Costo</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-4">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><input type="number" id="form-margen" class="md3-input-field" value="' + margenInicial.toFixed(1) + '" oninput="calcPrices()"></div>' +
+                        '<label class="md3-label">Margen %</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-4 d-flex align-items-center justify-content-center">' +
+                    '<div class="form-check form-switch">' +
+                        '<input class="form-check-input" type="checkbox" id="form-igv" ' + (tieneIGV ? 'checked' : '') + ' onchange="calcPrices()">' +
+                        '<label class="form-check-label small fw-bold">+IGV</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-12">' +
+                    '<div class="p-3 bg-success bg-opacity-10 border border-success border-opacity-10 rounded-3 d-flex justify-content-between align-items-center">' +
+                        '<span class="small fw-bold text-success text-uppercase">Venta Sugerida</span>' +
+                        '<h4 class="m-0 fw-bold text-success">S/ <span id="lbl-venta">' + (prod ? prod.precio_venta_sugerido.toFixed(2) : '0.00') + '</span></h4>' +
+                        '<input type="hidden" id="form-venta" value="' + (prod ? prod.precio_venta_sugerido : 0) + '">' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-7">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><i class="fas fa-location-dot text-muted opacity-50"></i>' +
+                        '<select id="form-ubi" class="md3-input-field cursor-pointer">' + ubiOpts + '</select></div>' +
+                        '<label class="md3-label">Ubicación Almacén</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="col-5">' +
+                    '<div class="md3-input-wrapper">' +
+                        '<div class="md3-input-group"><i class="fas fa-triangle-exclamation text-danger opacity-50"></i>' +
+                        '<input type="number" id="form-min" class="md3-input-field text-danger fw-bold" value="' + (prod ? prod.stock_minimo : 2) + '">' +
+                        '</div><label class="md3-label text-danger">Stock Mín.</label>' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+         '</div>';
+
+    // FOOTER
+    h += '<div class="pt-4 border-top d-flex gap-2">' +
+            '<button class="btn btn-light flex-grow-1 font-head text-muted fw-bold" data-bs-dismiss="offcanvas" style="border-radius: 0.75rem;">Cerrar</button>' +
+            '<button class="btn-std btn-std-primary flex-grow-1 shadow-sm font-head" onclick="guardarProducto()">' +
+                '<i class="fas fa-save me-2"></i>Guardar Cambios' +
+            '</button>' +
+         '</div>';
+
+    body.innerHTML = h;
+    
+    // Mostrar el offcanvas
+    var offcanvasEl = document.getElementById('offcanvasProdForm');
+    var bsOffcanvas = bootstrap.Offcanvas.getInstance(offcanvasEl) || new bootstrap.Offcanvas(offcanvasEl);
+    bsOffcanvas.show();
+}
+
+function calcPrices() {
+    var costo = parseFloat(document.getElementById('form-costo').value) || 0;
+    var margen = parseFloat(document.getElementById('form-margen').value) || 0;
+    
+    // Capturamos el estado actual del checkbox
+    var switchIgv = document.getElementById('form-igv').checked;
+    var factorIGV = switchIgv ? 1.18 : 1.0;
+    
+    // Cálculo: (Costo + Margen%) + IGV (si aplica)
+    var nuevaVenta = (costo * (1 + (margen / 100))) * factorIGV;
+    
+    document.getElementById('form-venta').value = nuevaVenta.toFixed(2);
+    document.getElementById('lbl-venta').innerText = nuevaVenta.toFixed(2);
+}
+
+function actualizarSubsForm(catId) {
+    var sel = document.getElementById('form-sub');
+    var opts = '<option value="">Sin Subcategoría</option>';
+    var subs = cacheSubcategoriasProd.filter(function(s) { return String(s.categoria_id) === String(catId); });
+    subs.forEach(function(s) { opts += '<option value="' + s.id + '">' + s.nombre + '</option>'; });
+    sel.innerHTML = opts;
+    setTimeout(genName, 50);
+}
+
+function genName() {
+    var inputNombre = document.getElementById('form-nombre');
+    var marca = document.getElementById('form-marca').value.trim();
+    var modelo = document.getElementById('form-modelo').value.trim();
+    var specs = document.getElementById('form-serie').value.trim();
+    var selectSub = document.getElementById('form-sub');
+    var textoSub = (selectSub.selectedIndex > 0) ? selectSub.options[selectSub.selectedIndex].text : '';
+    var partes = [textoSub, marca, modelo, specs].filter(Boolean);
+    inputNombre.value = partes.join(' ').toUpperCase();
+}
+
+function calcPrices() {
+    var costo = parseFloat(document.getElementById('form-costo').value) || 0;
+    var margen = parseFloat(document.getElementById('form-margen').value) || 0;
+    var factorIGV = document.getElementById('form-igv').checked ? 1.18 : 1.0;
+    var nuevaVenta = (costo * (1 + (margen / 100))) * factorIGV;
+    document.getElementById('form-venta').value = nuevaVenta.toFixed(2);
+    document.getElementById('lbl-venta').innerText = nuevaVenta.toFixed(2);
+}
+
+function guardarProducto() {
+    var idProd = document.getElementById('form-id').value;
+    
+    // Recopilamos los datos del formulario
+    var data = {
+        categoria_id: parseInt(document.getElementById('form-cat').value),
+        subcategoria_id: parseInt(document.getElementById('form-sub').value) || null,
+        nombre: document.getElementById('form-nombre').value.toUpperCase(),
+        marca: document.getElementById('form-marca').value,
+        modelo: document.getElementById('form-modelo').value,
+        especificaciones: document.getElementById('form-serie').value,
+        ubicacion_id: parseInt(document.getElementById('form-ubi').value) || null,
+        stock_minimo: parseInt(document.getElementById('form-min').value) || 0,
+        precio_costo_promedio: parseFloat(document.getElementById('form-costo').value) || 0,
+        precio_venta_sugerido: parseFloat(document.getElementById('form-venta').value) || 0,
+        tiene_igv: document.getElementById('form-igv').checked,
+        tipo_producto: 'FISICO'
+    };
+
+    if (!data.categoria_id || !data.nombre) return MTPC_Toast.error("Faltan datos obligatorios");
+    
+    MTPC_Toast.loading("Guardando producto...");
+
+    // === CORRECCIÓN AQUÍ ===
+    // Si NO hay ID, es NUEVO -> Usamos 'registrarProducto' (Genera SKU PROD-)
+    // Si HAY ID, es EDICIÓN -> Usamos 'actualizarProductoBackend'
+    
+    if (!idProd) {
+        // CREAR NUEVO (Usa la lógica especial de SKU del Srv_Inventario)
+        google.script.run.withSuccessHandler(procesarRespuestaGuardado).registrarProducto(data);
+    } else {
+        // ACTUALIZAR EXISTENTE
+        google.script.run.withSuccessHandler(procesarRespuestaGuardado).actualizarProductoBackend(idProd, data);
+    }
+}
+
+function procesarRespuestaGuardado(res) {
+    if (res.exito) {
+        MTPC_Toast.success("Inventario actualizado correctamente");
+        bootstrap.Offcanvas.getInstance(document.getElementById('offcanvasProdForm')).hide();
+        
+        // Refrescar la tabla y métricas
+        google.script.run.withSuccessHandler(function(newData) {
+            cacheProductos = newData.datos.productos;
+            actualizarMetricas(cacheProductos);
+            renderizarTablaProdPaginada();
+        }).srvObtenerInventarioCompleto();
+        
+    } else {
+        MTPC_Toast.error("Error: " + res.error);
+    }
+}
+
+function eliminarProducto(id) {
+    Swal.fire({
+        title: '¿Eliminar producto?', text: "Esta acción es irreversible.", icon: 'warning',
+        showCancelButton: true, confirmButtonColor: '#dc3545', confirmButtonText: 'Sí, eliminar'
+    }).then(function(r) {
+        if(r.isConfirmed) {
+            MTPC_Toast.loading("Eliminando...");
+            google.script.run.withSuccessHandler(function(res) {
+                if(res.exito) { 
+                    MTPC_Toast.success("Eliminado"); 
+                    // Refresco Silencioso
+                    google.script.run.withSuccessHandler(function(newData) {
+                        cacheProductos = newData.datos.productos;
+                        actualizarMetricas(cacheProductos);
+                        renderizarTablaProdPaginada();
+                    }).srvObtenerInventarioCompleto();
+                } else MTPC_Toast.error(res.error);
+            }).eliminarProductoBackend(id);
+        }
+    });
+}
+
+// ==========================================
+// 5. HISTORIAL GLOBAL (TIMELINE)
+// ==========================================
+
+function abrirHistorialGlobal() {
+    new bootstrap.Offcanvas(document.getElementById('offcanvasHistorialGlobal')).show();
+    var container = document.getElementById('feed-global-container');
+    container.innerHTML = '<div class="text-center py-5"><div class="stitch-spinner mx-auto"></div><p class="text-muted small mt-2">Analizando movimientos...</p></div>';
+    
+    var d = new Date(); d.setDate(d.getDate() - 7); var fechaLimite = d.setHours(0,0,0,0);
+    var qCompras = 'id, cantidad, producto_id, compras(codigo_orden, fecha_emision, generado_por)';
+    var qVentas  = 'id, cantidad, producto_id, despachos(codigo_despacho, fecha, usuarios!usuario_responsable_id(nombre_completo))';
+
+    var pComp = new Promise(function(r) { google.script.run.withSuccessHandler(function(res) { r(res); }).dbSelect('detalles_compra', qCompras, '&order=id.desc&limit=100'); });
+    var pVenta = new Promise(function(r) { google.script.run.withSuccessHandler(function(res) { r(res); }).dbSelect('detalles_despacho', qVentas, '&order=id.desc&limit=100'); });
+
+    Promise.all([pComp, pVenta]).then(function(results) {
+        var items = [];
+        var mapaProd = {};
+        cacheProductos.forEach(function(p) { mapaProd[p.id] = { nombre: p.nombre, sku: p.sku }; });
+
+        if(results[0].exito && results[0].datos) {
+            results[0].datos.forEach(function(c) {
+                if(!c.compras || !c.producto_id) return;
+                var fechaObj = new Date(c.compras.fecha_emision + 'T12:00:00');
+                if(fechaObj.getTime() < fechaLimite) return;
+                var info = mapaProd[c.producto_id] || { nombre: 'Producto ID:' + c.producto_id, sku: 'S/N' };
+                items.push({ tipo: 'IN', titulo: info.nombre, sku: info.sku, cantidad: c.cantidad, ref: c.compras.codigo_orden, fecha: fechaObj, responsable: c.compras.generado_por || 'Compras' });
+            });
+        }
+        
+        if(results[1].exito && results[1].datos) {
+            results[1].datos.forEach(function(v) {
+                if(!v.despachos || !v.producto_id) return;
+                var fechaObj = new Date(v.despachos.fecha + 'T12:00:00');
+                if(fechaObj.getTime() < fechaLimite) return;
+                var info = mapaProd[v.producto_id] || { nombre: 'Producto ID:' + v.producto_id, sku: 'S/N' };
+                items.push({ tipo: 'OUT', titulo: info.nombre, sku: info.sku, cantidad: v.cantidad, ref: v.despachos.codigo_despacho, fecha: fechaObj, responsable: (v.despachos.usuarios ? v.despachos.usuarios.nombre_completo : 'Técnico') });
+            });
+        }
+
+        items.sort(function(a,b) { return b.fecha - a.fecha; });
+        var totalIn = items.filter(function(i) { return i.tipo === 'IN'; }).reduce(function(a, b) { return a + b.cantidad; }, 0);
+        var totalOut = items.filter(function(i) { return i.tipo === 'OUT'; }).reduce(function(a, b) { return a + b.cantidad; }, 0);
+
+        var h = '<div class="p-4 bg-light/30"><div class="row g-2 mb-4">' +
+                '<div class="col-4"><div class="mini-card-kpi bg-success bg-opacity-10 text-success"><span class="d-block fw-bold fs-5">+' + totalIn + '</span><small class="text-uppercase fw-bold" style="font-size:0.6rem">Ingresos</small></div></div>' +
+                '<div class="col-4"><div class="mini-card-kpi bg-danger bg-opacity-10 text-danger"><span class="d-block fw-bold fs-5">-' + totalOut + '</span><small class="text-uppercase fw-bold" style="font-size:0.6rem">Salidas</small></div></div>' +
+                '<div class="col-4"><div class="mini-card-kpi bg-primary bg-opacity-10 text-primary"><span class="d-block fw-bold fs-5">' + (totalIn - totalOut) + '</span><small class="text-uppercase fw-bold" style="font-size:0.6rem">Neto</small></div></div>' +
+                '</div><div class="timeline-container"><div class="timeline-line"></div>';
+        
+        items.forEach(function(item) {
+            var isIn = item.tipo === 'IN';
+            var color = isIn ? 'success' : 'danger';
+            h += '<div class="timeline-item"><div class="timeline-icon text-' + color + '"><i class="fa-solid fa-' + (isIn?'arrow-down':'arrow-up') + '" style="font-size:12px"></i></div>' +
+                 '<div class="timeline-card shadow-sm"><div class="mb-2"><span class="d-block fw-bold text-dark font-head" style="font-size: 0.95rem; line-height: 1.2;">' + item.titulo + '</span><span class=" text-muted" style="font-size: 0.7rem;">SKU: ' + item.sku + '</span></div>' +
+                 '<div class="d-flex justify-content-between align-items-center mb-2"><div><span class="badge bg-' + color + ' bg-opacity-10 text-' + color + ' fw-bold border border-' + color + ' border-opacity-10" style="font-size: 0.65rem;">' + (isIn ? 'INGRESO' : 'SALIDA') + ' ' + (isIn ? '+' : '-') + item.cantidad + '</span></div><span class="badge bg-light text-secondary border" style="font-size:0.6rem;">REF: ' + item.ref + '</span></div>' +
+                 '<div class="pt-2 border-top border-dashed d-flex align-items-center justify-content-between"><div class="d-flex align-items-center gap-2"><div class="rounded-circle bg-light d-flex align-items-center justify-content-center" style="width:20px; height:20px; font-size:0.6rem;"><i class="fa-solid fa-user"></i></div><span class="text-muted" style="font-size:0.7rem;">' + item.responsable + '</span></div><span class="text-muted" style="font-size: 0.65rem;">' + item.fecha.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) + '</span></div></div></div>';
+        });
+
+        h += '</div></div>';
+        container.innerHTML = h;
+    });
+}
+
+</script>

@@ -1,0 +1,106 @@
+<div class="container-fluid-stitch animate__animated animate__fadeIn">
+    
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h2 class="fw-bold m-0" style="color: var(--primary); font-family: var(--font-head);">Bóveda de Software</h2>
+            <p class="text-muted m-0 small font-body">Gestión centralizada de activos digitales y trazabilidad de uso</p>
+        </div>
+        <div class="d-flex gap-3">
+            <button class="btn-std btn-std-outline shadow-sm" onclick="descargarReporteLicencias()">
+                <i class="fa-solid fa-file-pdf text-danger me-2"></i>Descargar Reporte
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4" id="metrics-licencias">
+        <div class="col-12 text-center py-3"><div class="stitch-spinner mx-auto"></div></div>
+    </div>
+
+    <div class="toolbar-std mb-4 d-flex align-items-center justify-content-between bg-white p-2 rounded-pill shadow-sm border animate__animated animate__fadeIn">
+    
+        <div class="trends-filter-wrapper d-flex align-items-center gap-1 flex-nowrap ms-2">
+            <button class="btn-segment active" onclick="aplicarFiltroLicencia('TODOS', this)" style="white-space: nowrap;">
+                Todo
+            </button>
+            <button class="btn-segment" onclick="aplicarFiltroLicencia('STOCK_BAJO', this)" style="white-space: nowrap;">
+                <i class="fa-solid fa-circle text-warning me-2" style="font-size: 6px;"></i>Stock Bajo
+            </button>
+            <button class="btn-segment" onclick="aplicarFiltroLicencia('SIN_CONFIG', this)" style="white-space: nowrap;">
+                <i class="fa-solid fa-circle text-danger me-2" style="font-size: 6px;"></i>Sin Configurar
+            </button>
+        </div>
+
+        <div style="min-width: 400px;" class="pe-2 flex-shrink-0">
+            <div class="input-std-wrapper">
+                <i class="fa-solid fa-search input-std-icon"></i>
+                <input type="text" id="buscador-lic" class="input-std" 
+                      placeholder="Buscar software, fabricante o clave..." onkeyup="filtrarLicenciasTexto()">
+            </div>
+        </div>
+    </div>
+
+<div class="row g-4 pt-2" id="grid-licencias">
+    </div>
+
+</div>
+
+<div id="grid-licencias" class="row g-4"></div>
+
+<div id="paginacion-licencias" class="d-flex justify-content-center align-items-center gap-3 mt-5 pb-4"></div>
+
+<div class="offcanvas offcanvas-end offcanvas-std-clean border-0 shadow-lg" tabindex="-1" id="offcanvasLicencia" style="width:450px !important;">
+    <div class="offcanvas-header p-4 border-bottom bg-white sticky-top z-10">
+        <div class="d-flex align-items-center gap-3">
+            <div id="off-brand-icon" class="kpi-icon-mini text-white" style="width:40px; height:40px; border-radius: 10px;">
+                <i class="fa-solid fa-key"></i>
+            </div>
+            <div>
+                <h5 class="fw-bold font-head m-0 text-dark" id="off-titulo" style="font-size: 1.1rem;">...</h5>
+                <span class="badge-std bg-light text-muted border" id="off-sku" style="font-size:0.65rem;">...</span>
+            </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+    </div>
+
+    <div class="offcanvas-body p-4 bg-light custom-scrollbar">
+        <div class="edit-node-section">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h3 class="offcanvas-section-title m-0" style="font-size: 0.75rem;">
+                    <i class="fa-solid fa-sliders me-2"></i> Configuración del Lote
+                </h3>
+                <button class="btn-std btn-std-primary px-3 py-1" onclick="guardarConfiguracion()" style="font-size:0.7rem;">
+                    <i class="fa-solid fa-save me-1"></i> Guardar
+                </button>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-12">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <input type="text" id="edit-key" class="md3-input-field" placeholder="####-####-####">
+                        </div>
+                        <label class="md3-label">Identificador / Key</label>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <input type="date" id="edit-ini" class="md3-input-field">
+                        </div>
+                        <label class="md3-label">Fecha Ingreso</label>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="md3-input-wrapper">
+                        <div class="md3-input-group">
+                            <input type="date" id="edit-fin" class="md3-input-field">
+                        </div>
+                        <label class="md3-label">Vencimiento</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="slots-container"></div>
+    </div>
+</div>

@@ -1,0 +1,538 @@
+<script>
+/**
+ * MÓDULO: GESTIÓN DE LICENCIAS (V2)
+ */
+
+// VARIABLES GLOBALES
+var licenciasCache = [];
+var licenciasFiltradas = []; 
+var filtroActual = 'TODOS';
+var prodActual = null;
+
+// VARIABLES PAGINACIÓN
+var paginaActual = 1;
+const ITEMS_POR_PAGINA = 6; 
+
+// ==========================================
+// 1. RENDERIZADO
+// ==========================================
+function renderLicencias() {
+    var container = document.getElementById('app-container');
+    if (!container) return;
+
+    // 1. Splash Loader Corporativo (Pantalla Completa)
+    container.innerHTML = `
+        <div class="loader-container animate__animated animate__fadeIn">
+            <div class="stitch-spinner"></div>
+            <h5 class="fw-bold mt-3 text-primary font-head">Bóveda de Software</h5>
+            <p class="small text-muted font-body">Sincronizando licencias y asignaciones de red...</p>
+        </div>`;
+    
+    // 2. Carga de la estructura HTML desde el servidor
+    google.script.run.withSuccessHandler(html => {
+        container.innerHTML = html;
+        cargarInventarioLicencias(); // Inicia la carga de datos interna
+    }).obtenerVista('View_Licencias');
+}
+// ==========================================
+// 2. CARGA DE DATOS (Lógica de Asociación INTACTA)
+// ==========================================
+function cargarInventarioLicencias() {
+    // 1. Micro-loaders locales
+    var metrics = document.getElementById('metrics-licencias');
+    var grid = document.getElementById('grid-licencias');
+    
+    if(metrics) metrics.innerHTML = '<div class="col-12 text-center py-3"><div class="stitch-spinner mx-auto" style="width:30px; height:30px;"></div></div>';
+    if(grid) grid.innerHTML = '<div class="col-12 text-center py-5"><div class="stitch-spinner mx-auto"></div></div>';
+
+    // 2. Promesas en paralelo para mayor velocidad (UPC Style)
+    var pProds = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('productos', '*'));
+    var pCats  = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('categorias', 'id, nombre'));
+    var pLotes = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('inventario_lotes', '*'));
+    var pUsos  = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('detalles_despacho', '*, despachos(codigo_despacho, fecha, nro_orden_ref)', '&order=id.asc'));
+
+    Promise.all([pProds, pCats, pLotes, pUsos]).then(values => {
+        var productos = values[0].datos || [];
+        var categorias = values[1].datos || [];
+        var lotesTodos = values[2].datos || [];
+        var usosTodos = values[3].datos || [];
+
+        // 3. Procesamiento de caché (Lógica de asociación mantenida)
+        licenciasCache = productos.filter(p => {
+            var cat = categorias.find(c => String(c.id) === String(p.categoria_id));
+            if (!cat) return false;
+            var n = cat.nombre.toUpperCase();
+            return n.includes('LICENCIA') || n.includes('SOFTWARE');
+        }).map(prod => {
+            var config = lotesTodos.find(l => String(l.producto_id) === String(prod.id));
+            
+            // Lógica de Fallback para usos
+            var susUsos = config 
+                ? usosTodos.filter(u => String(u.lote_id) === String(config.id))
+                : usosTodos.filter(u => String(u.producto_id) === String(prod.id));
+
+            var stockFisico = parseInt(prod.stock_actual) || 0;
+            var ocupados = susUsos.length;
+            var capacidad = stockFisico + ocupados;
+
+            return {
+                ...prod,
+                config: config || null,
+                susUsos: susUsos,
+                stockFisico: stockFisico,
+                ocupados: ocupados,
+                capacidad: capacidad,
+                porcentaje: capacidad > 0 ? Math.round((ocupados / capacidad) * 100) : 0
+            };
+        });
+
+        // 4. Renderizado Final
+        renderizarKPIsDashboard(); // Actualiza contadores superiores
+        filtrarLicenciasTexto();   // Pinta el grid con la paginación
+    }).catch(err => {
+        MTPC_Toast.error("Error al sincronizar la bóveda");
+        console.error(err);
+    });
+}
+
+// ==========================================
+// 3. FILTRADO Y PAGINACIÓN
+// ==========================================
+function aplicarFiltroLicencia(tipo, btn) {
+    filtroActual = tipo;
+    var parent = btn.parentNode;
+    parent.querySelectorAll('button').forEach(b => { 
+        b.classList.remove('text-primary', 'border-primary', 'btn-stitch-ghost'); 
+        b.classList.add('text-muted', 'btn-white', 'shadow-sm'); 
+    });
+    btn.classList.remove('text-muted', 'btn-white', 'shadow-sm');
+    btn.classList.add('text-primary', 'border-primary', 'btn-stitch-ghost');
+    
+    filtrarLicenciasTexto();
+}
+
+function filtrarLicenciasTexto() {
+    var texto = document.getElementById('buscador-lic').value.toLowerCase();
+    
+    licenciasFiltradas = licenciasCache.filter(l => {
+        var matchTxt = l.nombre.toLowerCase().includes(texto) || l.sku.toLowerCase().includes(texto);
+        var matchTipo = true;
+        if(filtroActual === 'STOCK_BAJO') matchTipo = (l.stockFisico < 3 && l.stockFisico > 0);
+        if(filtroActual === 'SIN_CONFIG') matchTipo = (!l.config || !l.config.id);
+        return matchTxt && matchTipo;
+    });
+
+    paginaActual = 1;
+    renderizarPaginaActual();
+}
+
+function renderizarPaginaActual() {
+    var containerGrid = document.getElementById('grid-licencias');
+    var containerPag = document.getElementById('paginacion-licencias');
+    containerGrid.innerHTML = '';
+
+    if(licenciasFiltradas.length === 0) {
+        containerGrid.innerHTML = '<div class="col-12 text-center py-5 opacity-50"><i class="fa-solid fa-box-open fs-1 text-secondary mb-3"></i><h5 class="fw-bold font-head text-dark">Sin resultados</h5></div>';
+        containerPag.innerHTML = '';
+        return;
+    }
+
+    var inicio = (paginaActual - 1) * ITEMS_POR_PAGINA;
+    var fin = inicio + ITEMS_POR_PAGINA;
+    var datosPagina = licenciasFiltradas.slice(inicio, fin);
+
+    renderizarGrid(datosPagina);
+    renderizarControlesPaginacion();
+}
+
+function renderizarControlesPaginacion() {
+    const container = document.getElementById('paginacion-licencias');
+    if (!container) return;
+
+    const totalPaginas = Math.ceil(licenciasFiltradas.length / ITEMS_POR_PAGINA);
+
+    // Si no hay más de una página, no mostramos controles
+    if (totalPaginas <= 1) { 
+        container.innerHTML = ''; 
+        return; 
+    }
+
+    const isPrevDisabled = paginaActual === 1;
+    const isNextDisabled = paginaActual === totalPaginas;
+
+    // Aplicamos la estructura .pagination-std y .page-btn del CSS global
+    container.innerHTML = `
+        <div class="pagination-std mt-3">
+            <button class="page-btn" 
+                    ${isPrevDisabled ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''} 
+                    onclick="cambiarPagina(-1)">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            
+            <div class="px-2">
+                <span class="text-muted small fw-bold font-head" style="letter-spacing: 0.5px;">
+                    PÁGINA ${paginaActual} <span class="opacity-50 mx-1">/</span> ${totalPaginas}
+                </span>
+            </div>
+
+            <button class="page-btn" 
+                    ${isNextDisabled ? 'disabled style="opacity: 0.4; cursor: not-allowed;"' : ''} 
+                    onclick="cambiarPagina(1)">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </div>
+    `;
+}
+
+function cambiarPagina(delta) {
+    paginaActual += delta;
+    renderizarPaginaActual();
+    document.getElementById('grid-licencias').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderizarGrid(lista) {
+    const container = document.getElementById('grid-licencias');
+    if (!container) return;
+    container.innerHTML = '';
+
+    lista.forEach(prod => {
+        const conf = prod.config || {};
+        const idRegistro = conf.diferenciador || 'S/N';
+        const fechaIngreso = DateUtils.toUserDate(conf.fecha_ingreso); 
+        const nombreCorto = prod.nombre.length > 40 ? prod.nombre.substring(0, 40) + "..." : prod.nombre;
+
+        // Lógica de Identidad Visual
+        let iconClass = "fa-solid fa-key"; 
+        let gradiente = "linear-gradient(135deg, #64748b 0%, #334155 100%)";
+        const nameLower = prod.nombre.toLowerCase();
+
+        if (nameLower.includes('adobe')) {
+            iconClass = "fa-brands fa-adobe";
+            gradiente = "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)";
+        } else if (nameLower.includes('microsoft') || nameLower.includes('office')) {
+            iconClass = "fa-brands fa-microsoft";
+            gradiente = "linear-gradient(135deg, #00a4ef 0%, #0078d4 100%)";
+        } else if (nameLower.includes('eset') || nameLower.includes('antivirus')) {
+            iconClass = "fa-solid fa-shield-halved";
+            gradiente = "linear-gradient(135deg, #10b981 0%, #047857 100%)";
+        }
+
+        const ocupados = prod.ocupados || 0;
+        const capacidad = prod.capacidad || 0;
+        const porcentaje = capacidad > 0 ? Math.round((ocupados / capacidad) * 100) : 0;
+        const stockLibre = capacidad - ocupados;
+        const barColorClass = porcentaje >= 100 ? 'bg-danger-mtpc' : 'bg-primary';
+
+        const html = `
+            <div class="col-md-4 col-lg-3 mb-3 animate__animated animate__fadeIn">
+                <div class="card-licencia-saas card-licencia-compact" onclick="abrirOffcanvas(${prod.id})">
+                    
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div class="licencia-avatar avatar-compact" style="background: ${gradiente}">
+                            <i class="${iconClass}"></i>
+                        </div>
+                        <span class="stock-badge badge-compact ${stockLibre === 0 ? 'stock-out' : 'badge-success'}">
+                            ${stockLibre === 0 ? 'Agotada' : 'Vigente'}
+                        </span>
+                    </div>
+
+                    <div class="mb-2">
+                        <h3 class="m-0 title-compact fw-bold text-truncate" title="${prod.nombre}">
+                            ${nombreCorto}
+                        </h3>
+                        <div class="d-flex align-items-center gap-2 mt-1">
+                            <span class="text-muted text-xs-mtpc">${prod.sku}</span>
+                            <span style="width: 2px; height: 2px; background: #cbd5e1; border-radius: 50%;"></span>
+                            <span class="fw-bold text-primary" style="font-size: 0.65rem;">${stockLibre} LIBRES</span>
+                        </div>
+                    </div>
+
+                    <div class="key-info-box key-box-compact">
+                        <span class="key-label" style="font-size: 0.5rem;">Identificador / Key</span>
+                        <div class="key-content-row">
+                            <div class="key-marquee-wrapper">
+                                <span class="key-marquee-text" style="font-size: 0.75rem;" title="${idRegistro}">
+                                    ${idRegistro}
+                                </span>
+                            </div>
+                            <i class="fa-solid fa-key key-icon-styled" style="font-size: 0.75rem;"></i>
+                        </div>
+                    </div>
+
+                    <div class="mt-auto mb-2">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="kpi-title-mini" style="font-size: 0.55rem;">Ocupación</span>
+                            <span class="fw-bold ${porcentaje >= 100 ? 'text-danger' : ''}" style="font-size: 0.7rem;">
+                                ${ocupados} / ${capacidad}
+                            </span>
+                        </div>
+                        <div class="progress progress-slim">
+                            <div class="progress-bar ${barColorClass}" style="width: ${porcentaje}%"></div>
+                        </div>
+                    </div>
+
+                    <div class="pt-1 border-top d-flex align-items-center justify-content-between">
+                        <div class="activation-info">
+                            <span class="text-muted text-xs-mtpc">
+                                <i class="fa-regular fa-calendar-check me-1 text-primary"></i>${fechaIngreso}
+                            </span>
+                        </div>
+                        <button class="btn-view-licencia" title="Ver detalle" style="width: 28px; height: 28px; font-size: 0.75rem;">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+            
+        container.insertAdjacentHTML('beforeend', html);
+    });
+}
+
+function renderizarKPIsDashboard() {
+    var container = document.getElementById('metrics-licencias');
+    if(!container) return;
+
+    // 1. LÓGICA DE CÁLCULO (Se mantiene tu lógica original)
+    var totalActivas = licenciasCache.reduce((acc, l) => acc + (l.capacidad || 0), 0);
+    var totalAsignadas = licenciasCache.reduce((acc, l) => acc + (l.ocupados || 0), 0);
+    var totalDisponibles = licenciasCache.reduce((acc, l) => acc + (l.stockFisico || 0), 0);
+
+    // 2. RENDERIZADO VISUAL ESTANDARIZADO
+    var html = '';
+
+    // KPI 1: Licencias Activas (Azul - Contexto General)
+    html += `
+        <div class="col-md-4 animate__animated animate__fadeInUp">
+            <div class="card-kpi kpi-blue">
+                <div class="kpi-icon-wrapper shadow-sm"><i class="fa-brands fa-microsoft"></i></div>
+                <div>
+                    <div class="kpi-title">Licencias Activas</div>
+                    <div class="kpi-value">${totalActivas}</div>
+                    <div class="kpi-subtitle">Total en catálogo</div>
+                </div>
+            </div>
+        </div>`;
+
+    // KPI 2: Asignaciones (Verde - Estado Saludable)
+    html += `
+        <div class="col-md-4 animate__animated animate__fadeInUp" style="animation-delay: 0.1s;">
+            <div class="card-kpi kpi-green">
+                <div class="kpi-icon-wrapper shadow-sm"><i class="fa-solid fa-desktop"></i></div>
+                <div>
+                    <div class="kpi-title">Asignaciones</div>
+                    <div class="kpi-value">${totalAsignadas}</div>
+                    <div class="kpi-subtitle">Equipos cubiertos</div>
+                </div>
+            </div>
+        </div>`;
+
+    // KPI 3: Disponibles (Amarillo - Seguimiento Preventivo)
+    html += `
+        <div class="col-md-4 animate__animated animate__fadeInUp" style="animation-delay: 0.2s;">
+            <div class="card-kpi kpi-yellow">
+                <div class="kpi-icon-wrapper shadow-sm"><i class="fa-solid fa-layer-group"></i></div>
+                <div>
+                    <div class="kpi-title">Disponibles</div>
+                    <div class="kpi-value">${totalDisponibles}</div>
+                    <div class="kpi-subtitle">Stock libre en bodega</div>
+                </div>
+            </div>
+        </div>`;
+
+    container.innerHTML = html;
+}
+
+function abrirOffcanvas(idProd) {
+    const offcanvasEl = document.getElementById('offcanvasLicencia');
+    const off = new bootstrap.Offcanvas(offcanvasEl);
+
+    prodActual = licenciasCache.find(p => p.id === idProd);
+    if (!prodActual) return;
+
+    // 1. IDENTIDAD (Reutilizando lógica de cards)
+    document.getElementById('off-titulo').innerText = prodActual.nombre;
+    document.getElementById('off-sku').innerText = `SKU: ${prodActual.sku}`;
+    
+    const iconWrapper = document.getElementById('off-brand-icon');
+    iconWrapper.innerHTML = `<i class="${obtenerIconoMarca(prodActual.nombre)}"></i>`;
+    iconWrapper.style.background = obtenerGradiente(prodActual.nombre);
+
+    // 2. CONFIGURACIÓN (Inputs MD3)
+    const conf = prodActual.config || {};
+    document.getElementById('edit-key').value = conf.diferenciador || '';
+    document.getElementById('edit-ini').value = conf.fecha_ingreso || '';
+    document.getElementById('edit-fin').value = conf.fecha_vencimiento || '';
+
+    // 3. WIDGET DE RESUMEN (KPI)
+    const ocupados = prodActual.ocupados || 0;
+    const capacidad = prodActual.capacidad || 0;
+    const stockLibre = capacidad - ocupados;
+    const porcentaje = capacidad > 0 ? Math.round((ocupados / capacidad) * 100) : 0;
+    const containerSlots = document.getElementById('slots-container');
+
+    let htmlWidget = `
+        <div class="card-std p-3 mb-4" style="background: var(--bg-body); border-style: dashed;">
+            <div class="d-flex justify-content-between align-items-end mb-2">
+                <div>
+                    <span class="key-label">Estado de Ocupación</span>
+                    <div class="h4 m-0 fw-bold text-dark font-head">${ocupados} <span class="text-muted fs-6">/ ${capacidad}</span></div>
+                </div>
+                <div class="text-end">
+                    <span class="badge-std ${stockLibre < 3 ? 'badge-warning' : 'badge-success'}">
+                        ${stockLibre} LIBRES
+                    </span>
+                </div>
+            </div>
+            <div class="progress progress-slim">
+                <div class="progress-bar ${porcentaje >= 100 ? 'bg-danger-mtpc' : 'bg-primary'}" 
+                     style="width: ${porcentaje}%"></div>
+            </div>
+        </div>`;
+
+    // 4. HISTORIAL DE ASIGNACIONES (Timeline)
+    let htmlTimeline = `
+        <div class="offcanvas-section">
+            <h3 class="offcanvas-section-title">
+                <i class="fa-solid fa-clock-rotate-left"></i> Historial de Asignaciones
+            </h3>`;
+
+    if (prodActual.susUsos.length === 0) {
+        htmlTimeline += `
+            <div class="text-center py-5 opacity-50">
+                <i class="fa-solid fa-box-open fs-1 mb-2"></i>
+                <p class="small m-0">Sin registros de uso actualmente</p>
+            </div>`;
+    } else {
+        htmlTimeline += `<div class="stitch-timeline">`;
+        prodActual.susUsos.forEach((uso, index) => {
+            const fechaStr = DateUtils.toUserDate(uso.despachos?.fecha);
+            const ref = uso.despachos?.nro_orden_ref || uso.despachos?.codigo_despacho || 'S/N';
+            
+            htmlTimeline += `
+                <div class="timeline-item" style="animation-delay: ${index * 50}ms">
+                    <div class="timeline-dot"></div>
+                    <div class="timeline-content p-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="badge-std badge-success" style="font-size:0.6rem">ACTIVO</span>
+                            <small class="text-muted fw-bold">${fechaStr}</small>
+                        </div>
+                        
+                        <div class="d-flex align-items-center gap-3 mb-2">
+                            <div class="kpi-icon-mini bg-light" style="width:32px; height:32px">
+                                <i class="fa-solid fa-laptop text-secondary"></i>
+                            </div>
+                            <div>
+                                <div class="key-label">Equipo / Serie</div>
+                                <div class="small fw-bold text-dark">${uso.numero_serie_equipo || 'No registrado'}</div>
+                            </div>
+                        </div>
+
+                        <div class="border-top my-2 opacity-50"></div>
+
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="kpi-icon-mini" style="width:32px; height:32px; background: var(--primary-bg)">
+                                <i class="fa-solid fa-file-invoice text-primary"></i>
+                            </div>
+                            <div>
+                                <div class="key-label">Referencia / Despacho</div>
+                                <div class="small fw-bold text-primary">${ref}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        });
+        htmlTimeline += `</div>`;
+    }
+
+    htmlTimeline += `</div>`;
+    containerSlots.innerHTML = htmlWidget + htmlTimeline;
+    off.show();
+}
+
+/**
+ * DETERMINA EL ICONO SEGÚN LA MARCA DEL PRODUCTO
+ * Reutilizado para Cards y Offcanvas en Mi Técnico PC
+ */
+function obtenerIconoMarca(nombre) {
+    if (!nombre) return "fa-solid fa-key";
+    const n = nombre.toLowerCase();
+    
+    if (n.includes('adobe')) return "fa-brands fa-adobe";
+    if (n.includes('microsoft') || n.includes('office') || n.includes('windows')) 
+        return "fa-brands fa-microsoft";
+    if (n.includes('eset') || n.includes('antivirus')) return "fa-solid fa-shield-halved";
+    if (n.includes('autodesk') || n.includes('cad')) return "fa-solid fa-compass-drafting";
+    
+    // Icono por defecto si no coincide ninguna marca conocida
+    return "fa-solid fa-box-archive";
+}
+
+/**
+ * DETERMINA EL COLOR DE FONDO (GRADIENTE) SEGÚN LA MARCA
+ * Reutilizado para Cards y Offcanvas en Mi Técnico PC
+ */
+function obtenerGradiente(nombre) {
+    if (!nombre) return "linear-gradient(135deg, #64748b 0%, #334155 100%)";
+    const n = nombre.toLowerCase();
+    
+    if (n.includes('adobe')) return "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)";
+    if (n.includes('microsoft') || n.includes('office') || n.includes('windows')) 
+        return "linear-gradient(135deg, #00a4ef 0%, #0078d4 100%)";
+    if (n.includes('eset') || n.includes('antivirus')) 
+        return "linear-gradient(135deg, #10b981 0%, #047857 100%)";
+    if (n.includes('autodesk') || n.includes('cad')) 
+        return "linear-gradient(135deg, #ff8c00 0%, #e65100 100%)";
+    
+    // Default: Indigo Corporativo Tink Lab
+    return "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)";
+}
+
+function guardarConfiguracion() {
+    if (!prodActual) return;
+    
+    var keyVal = document.getElementById('edit-key').value;
+    
+    // Validación con Toast de Error
+    if (!keyVal) {
+        return MTPC_Toast.error('El Identificador / Key es requerido');
+    }
+    
+    // Feedback de Carga estilo MTPC
+    MTPC_Toast.loading('Sincronizando con el servidor...');
+    
+    google.script.run.withSuccessHandler(r => {
+        if (r.exito) {
+            // Notificación de éxito (limpia el loading automáticamente)
+            MTPC_Toast.success('Configuración del lote actualizada');
+            
+            cargarInventarioLicencias(); // Refresca el grid
+            
+            // Cierre del Offcanvas
+            const offElement = document.getElementById('offcanvasLicencia');
+            bootstrap.Offcanvas.getInstance(offElement).hide();
+        } else { 
+            MTPC_Toast.error('Error: ' + r.error); 
+        }
+    }).dbUpdate('inventario_lotes', {
+        diferenciador: keyVal,
+        fecha_ingreso: document.getElementById('edit-ini').value || null,
+        fecha_vencimiento: document.getElementById('edit-fin').value || null
+    }, `&producto_id=eq.${prodActual.id}`);
+}
+
+function aplicarFiltroLicencia(filtro, elemento) {
+    // 1. Localizamos el contenedor de filtros
+    const wrapper = elemento.closest('.trends-filter-wrapper');
+    
+    // 2. Removemos la clase 'active' de todos los botones en este grupo
+    wrapper.querySelectorAll('.btn-segment').forEach(btn => btn.classList.remove('active'));
+
+    // 3. Agregamos 'active' solo al botón presionado
+    elemento.classList.add('active');
+
+    // 4. Tu lógica de filtrado de datos (Ejemplo):
+    // renderizarGridLicencias(filtro); 
+    
+    console.log("Filtrando boveda por: " + filtro);
+}
+</script>

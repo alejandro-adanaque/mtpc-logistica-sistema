@@ -1,0 +1,2148 @@
+<style>
+/* =========================================
+   1. VARIABLES & RESET (CORE - INTACTO)
+   ========================================= */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700;800&family=Poppins:wght@300;400;500;600&display=swap');
+
+:root {
+    --sidebar-w: 260px;
+    --sidebar-w-mini: 80px;
+    --header-h: 70px;
+    
+    /* Paleta Corporativa MTPC (Respetada al 100%) */
+    --primary: #00295b;
+    --primary-dark: #001a3d;
+    --primary-light: #137fec;
+    --primary-bg: #eef7ff;
+    --accent: #EB7600;
+    
+    --text-main: #2c3e50;
+    --text-muted: #64748b;
+    --bg-body: #f4f6f9;
+    --surface: #ffffff;
+    --border-color: #e2e8f0;
+    
+    /* ESTÁNDARES DE GEOMETRÍA (STITCH MODEL) */
+    --radius-sm: 0.375rem;    /* Botones pequeños */
+    --radius-md: 0.5rem;      /* Inputs y Botones normales */
+    --radius-lg: 1rem;        /* Tarjetas y Offcanvas */
+    --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.05);
+    
+    --font-head: 'Montserrat', sans-serif;
+    --font-body: 'Poppins', sans-serif;
+}
+
+/* RESET CRÍTICO */
+html, body {
+    height: 100vh;
+    margin: 0; padding: 0;
+    overflow: hidden !important;
+    font-family: var(--font-body);
+    background-color: var(--bg-body);
+    color: var(--text-main);
+}
+
+#main-wrapper { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* =========================================
+   2. LAYOUT (SIDEBAR & MAIN - INTACTO)
+   ========================================= */
+.sidebar {
+    position: fixed; top: 0; left: 0;
+    height: 100vh; width: var(--sidebar-w);
+    background: linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%);
+    z-index: 1000; transition: width 0.3s ease;
+    display: flex; flex-direction: column;
+    white-space: nowrap; overflow: hidden;
+    box-shadow: 4px 0 15px rgba(0,0,0,0.1);
+}
+.sidebar.collapsed { width: var(--sidebar-w-mini); }
+
+/* --- CONTROL DE LOGOS EN SIDEBAR --- */
+
+/* ESTADO POR DEFECTO (Sidebar Expandido) */
+.sidebar .logo-main {
+    display: block; /* Muestra el logo completo */
+    transition: opacity 0.3s ease;
+}
+
+.sidebar .logo-icon {
+    display: none;  /* Oculta el icono pequeño */
+}
+
+/* ESTADO COLAPSADO (Cuando el JS añade la clase 'collapsed' al sidebar) */
+.sidebar.collapsed .logo-main {
+    display: none !important; /* Oculta el logo completo */
+}
+
+.sidebar.collapsed .logo-icon {
+    display: block !important; /* Muestra solo el icono pequeño */
+    margin: 0 auto; /* Centrado extra por si acaso */
+    animation: fadeInLogo 0.3s ease; /* Pequeño efecto suave */
+}
+
+/* Animación sutil para que no salte de golpe */
+@keyframes fadeInLogo {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.main-content {
+    flex: 1; height: 100vh; margin-left: var(--sidebar-w);
+    display: flex; flex-direction: column;
+    overflow-y: auto !important; overflow-x: hidden;
+    transition: all 0.3s ease; background-color: var(--bg-body);
+}
+.main-content.expanded { margin-left: var(--sidebar-w-mini); }
+
+.topbar {
+    height: var(--header-h); background: #fff; border-bottom: 1px solid #e0e0e0;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2rem; position: sticky; top: 0; z-index: 900; flex-shrink: 0;
+}
+
+#app-container { padding: 1.5rem; flex: 1; width: 100%; min-height: min-content; }
+
+/* Elementos del Sidebar Base */
+.brand-header { height: var(--header-h); display: flex; align-items: center; justify-content: center; border-bottom: 1px solid rgba(255,255,255,0.1); cursor: pointer; }
+.sidebar-menu { flex: 1; padding: 1rem 0; overflow-y: auto; overflow-x: hidden; }
+.nav-item { display: flex; align-items: center; padding: 12px 20px; color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.2s; border-left: 4px solid transparent; }
+.nav-item:hover { background: rgba(255,255,255,0.1); color: white; }
+.nav-item.active { background: rgba(255,255,255,0.08); color: white; border-left-color: var(--accent); font-weight: 500; }
+.nav-item i { min-width: 40px; text-align: center; font-size: 1.2rem; margin-right: 10px; }
+.group-label { font-size: 0.75rem; color: rgba(255,255,255,0.4); text-transform: uppercase; font-weight: 700; padding: 20px 25px 5px; }
+.sidebar.collapsed #logo-expanded, .sidebar.collapsed .nav-text, .sidebar.collapsed .group-label { display: none !important; }
+
+/* =============================================================
+   3. ESTÁNDARES DE COMPONENTES (MODELO STITCH / UNIFORMIDAD)
+   ============================================================= */
+
+/* --- 3.1 TARJETAS Y CONTENEDORES --- */
+.card-std {
+    background: var(--surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg); /* Estandariza el redondeo */
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+}
+
+/* --- 3.2 TOOLBAR (LAYOUT ESTÁNDAR) --- 
+   Uso: <div class="toolbar-std"> ...inputs... <div class="ms-auto">...actions...</div> </div>
+*/
+.toolbar-std {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+/* Estandariza que los buscadores/acciones a la derecha usen la clase .ms-auto de bootstrap */
+
+/* --- 3.3 INPUTS ESTÁNDAR (Reemplazo Visual de MD3 para uniformidad) --- */
+.input-std-group {
+    position: relative;
+    width: 100%;
+}
+
+.input-std-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 0.4rem;
+}
+
+.input-std-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+/* Icono siempre alineado igual */
+.input-std-icon {
+    position: absolute;
+    left: 1rem;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    pointer-events: none;
+    z-index: 5;
+}
+
+/* Input con padding estandarizado para dejar sitio al icono */
+.input-std {
+    width: 100%;
+    padding: 0.65rem 1rem 0.65rem 2.5rem; /* 2.5rem reserva espacio exacto para icono */
+    font-size: 0.9rem;
+    font-family: var(--font-body);
+    color: var(--text-main);
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); /* Redondeo unificado */
+    transition: all 0.2s;
+}
+
+.input-std:focus {
+    outline: none;
+    border-color: var(--primary-light);
+    box-shadow: 0 0 0 3px rgba(19, 127, 236, 0.15); /* Focus ring sutil */
+}
+
+/* --- 3.4 BOTONES ESTÁNDAR --- */
+.btn-std {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem; /* Espacio fijo entre icono y texto */
+    padding: 0.65rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: var(--radius-md); /* Mismo redondeo que inputs */
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.btn-std-primary { background: var(--primary); color: #fff; }
+.btn-std-primary:hover { background: var(--primary-dark); }
+
+.btn-std-outline { background: #fff; border-color: var(--border-color); color: var(--text-muted); }
+.btn-std-outline:hover { background: var(--primary-bg); border-color: var(--primary-light); color: var(--primary); }
+
+.btn-icon-only { padding: 0.65rem; } /* Para botones cuadrados con solo icono */
+
+/* --- 3.5 TABLAS ESTÁNDAR (STITCH LOOK) --- */
+.table-std-wrapper {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.table-std {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0;
+}
+
+.table-std thead th {
+    background-color: #f8fafc; /* Fondo gris muy suave */
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+}
+
+.table-std tbody td {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--border-color); /* Divisores sutiles */
+    vertical-align: middle;
+    color: var(--text-main);
+    font-size: 0.9rem;
+}
+
+.table-std tbody tr:last-child td { border-bottom: none; }
+.table-std tbody tr:hover { background-color: var(--primary-bg); }
+
+/* --- 3.6 OFFCANVAS ESTÁNDAR --- */
+.offcanvas-std {
+    border-top-left-radius: var(--radius-lg) !important;
+    border-bottom-left-radius: var(--radius-lg) !important;
+    border-left: 1px solid var(--border-color);
+    box-shadow: -4px 0 15px rgba(0,0,0,0.05);
+}
+
+.offcanvas-header-std {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* --- 3.7 PAGINACIÓN ESTÁNDAR --- */
+.pagination-std {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end; /* Siempre a la derecha o space-between */
+    gap: 0.5rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.page-btn {
+    width: 2rem; height: 2rem;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.page-btn:hover { background: var(--bg-body); color: var(--text-main); }
+.page-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* UTILITIES */
+.badge-std {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+.badge-success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+.badge-warning { background: #fef9c3; color: #854d0e; border: 1px solid #fef08a; }
+
+/* =========================================
+   4. ADDONS: TOASTS & LOADERS (Stitch Standard)
+   ========================================= */
+
+/* --- LOADER DE PANTALLA / SECCIÓN --- */
+.loader-container {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 3rem; color: var(--text-muted);
+}
+.stitch-spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--primary-bg);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 1rem;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- TOASTS (NOTIFICACIONES FLOTANTES) --- */
+#toast-container {
+    position: fixed; bottom: 2rem; right: 2rem;
+    z-index: 9999; display: flex; flex-direction: column; gap: 0.8rem;
+}
+
+.toast-icon { font-size: 1.2rem; }
+.success .toast-icon { color: #10b981; }
+.error .toast-icon   { color: #ef4444; }
+
+@keyframes slideIn { to { transform: translateX(0); } }
+@keyframes fadeOut { to { opacity: 0; transform: translateX(100%); } }
+
+/* =========================================
+   ADDON: MTPC TOAST (Notificaciones V2)
+   Ubicación: Centro Inferior (Floating)
+   ========================================= */
+
+#mtpc-toast-container {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%); /* Centrado perfecto */
+    z-index: 10000;
+    display: flex;
+    flex-direction: column-reverse; /* Los nuevos aparecen abajo */
+    gap: 0.8rem;
+    align-items: center;
+    pointer-events: none; /* Permite clickear lo que está detrás */
+}
+
+.mtpc-toast {
+    background: #ffffff;
+    color: var(--text-main);
+    padding: 0.75rem 1.5rem;
+    border-radius: 50px; /* Estilo cápsula moderna */
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 280px;
+    max-width: 400px;
+    font-size: 0.9rem;
+    font-family: var(--font-body);
+    border: 1px solid var(--border-color);
+    
+    /* Animación de entrada: Sube y aparece */
+    animation: toastSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    pointer-events: auto; /* El toast sí es interactivo */
+}
+
+/* Variantes de color (Borde izquierdo o Icono) */
+.mtpc-toast.success { border-left: 4px solid #10b981; }
+.mtpc-toast.error   { border-left: 4px solid #ef4444; }
+.mtpc-toast.loading { border-left: 4px solid var(--primary); }
+
+.toast-icon { font-size: 1.1rem; }
+.toast-icon.success { color: #10b981; }
+.toast-icon.error   { color: #ef4444; }
+.toast-icon.loading { color: var(--primary); }
+
+/* Animación */
+@keyframes toastSlideUp {
+    0% { opacity: 0; transform: translateY(20px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastFadeOut {
+    to { opacity: 0; transform: translateY(-10px); }
+}
+
+/* =========================================
+   MEJORA VISUAL: CONTRASTE Y KPIS
+   ========================================= */
+
+/* 1. Asegurar contraste Fondo vs Tarjetas */
+.bg-body {
+    background-color: #f3f4f6 !important; /* Gris un poco más notable para contraste */
+}
+
+/* 2. DISEÑO KPI (Estilo Tarjeta Imagen) */
+.card-kpi {
+    background: #ffffff;
+    border-radius: 1rem; /* Bordes redondeados */
+    padding: 1.5rem;
+    border: 1px solid rgba(0,0,0,0.04);
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.02);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    height: 100%; /* Para que todos tengan el mismo alto */
+}
+
+.card-kpi:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
+}
+
+/* Círculo del icono */
+.kpi-icon-wrapper {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+/* Variantes de color */
+.kpi-blue   .kpi-icon-wrapper { background-color: #e0f2fe; color: #0284c7; }
+.kpi-red    .kpi-icon-wrapper { background-color: #fee2e2; color: #dc2626; }
+.kpi-yellow .kpi-icon-wrapper { background-color: #fef9c3; color: #ca8a04; }
+.kpi-green  .kpi-icon-wrapper { background-color: #dcfce7; color: #16a34a; }
+
+/* Tipografía KPI */
+.kpi-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b; /* Slate 500 */
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+}
+
+.kpi-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #0f172a; /* Slate 900 */
+    line-height: 1;
+    font-family: var(--font-head);
+    margin-bottom: 0.2rem;
+}
+
+.kpi-subtitle {
+    font-size: 0.8rem;
+    color: #94a3b8;
+}
+
+/* FUERZA LA FORMA CUADRADA EN BOTONES DE ACCIÓN */
+.btn-icon-only {
+    width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important; /* Elimina paddings que causan el óvalo */
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: var(--radius-md) !important;
+    flex-shrink: 0; /* Evita que se aplaste */
+}
+
+/* Ajuste de color para el icono de WhatsApp */
+.text-success.btn-std-outline {
+    border-color: var(--border-color) !important;
+    color: #25D366 !important;
+}
+
+.text-success.btn-std-outline:hover {
+    background-color: #e8f9ef !important;
+    border-color: #25D366 !important;
+}
+/* =========================================
+   ESTILO INPUTS MD3 (Mockup Stitch)
+   ========================================= */
+.offcanvas-section-title {
+    font-size: 0.75rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--primary);
+    opacity: 0.8;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-head);
+}
+
+.md3-input-wrapper {
+    position: relative;
+    margin-top: 0.5rem;
+}
+
+.md3-input-group {
+    display: flex;
+    align-items: center;
+    background-color: #f8fafc; /* Fondo suave del mockup */
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0 1rem;
+    height: 56px;
+    transition: all 0.2s ease;
+}
+
+.md3-input-group:focus-within {
+    border-color: var(--primary);
+    background-color: #fff;
+    box-shadow: 0 0 0 1px var(--primary);
+}
+
+.md3-label {
+    position: absolute;
+    top: -10px;
+    left: 12px;
+    background: white;
+    padding: 0 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--primary);
+    z-index: 10;
+    font-family: var(--font-head);
+}
+
+.md3-input-field {
+    width: 100%;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 0.9rem;
+    font-family: var(--font-body);
+    color: var(--text-main);
+    padding-left: 10px;
+}
+
+.md3-input-field::placeholder {
+    color: #cbd5e1;
+    font-weight: 400;
+}
+
+/* Contenedor de sección estilo Card */
+.section-card {
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+    box-shadow: var(--shadow-soft);
+}
+
+/* =========================================
+   OFFCANVAS ARMÓNICO (Fusión MTPC + Stitch)
+   ========================================= */
+
+/* Fondo del cuerpo: más claro para que no choque con la tabla de fondo */
+.offcanvas-body-clean {
+    background-color: #ffffff !important; /* Blanco puro para limpieza total */
+    padding: 1.5rem !important;
+}
+
+/* Secciones: sin bordes ni sombras, solo espaciado y un divisor sutil */
+.offcanvas-section {
+    margin-bottom: 2rem;
+    padding-bottom: 0.5rem;
+}
+
+/* Títulos de sección: Usamos el azul corporativo suave para armonizar con los avatars */
+.offcanvas-section-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--primary); /* Azul MTPC */
+    opacity: 0.9;
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-family: var(--font-head);
+}
+
+/* Inputs MD3 Armonizados: Sin fondo gris, solo borde sutil */
+.md3-input-group {
+    display: flex;
+    align-items: center;
+    background-color: transparent !important; /* Eliminamos el fondo gris del mockup */
+    border: 1.5px solid #eef2f6; /* Borde muy suave */
+    border-radius: 0.75rem;
+    padding: 0 1rem;
+    height: 54px;
+    transition: all 0.2s ease;
+}
+
+.md3-input-group:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 41, 91, 0.05); /* Glow azul muy sutil */
+}
+
+/* Etiquetas sobre el borde: azul MTPC */
+.md3-label {
+    position: absolute;
+    top: -9px;
+    left: 12px;
+    background: white;
+    padding: 0 5px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-muted); /* Gris por defecto */
+    transition: color 0.2s;
+}
+
+.md3-input-group:focus-within ~ .md3-label {
+    color: var(--primary); /* Cambia a azul al enfocar */
+}
+/* --- ESTADOS DE STOCK (RELEVANCIA) --- */
+.stock-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid transparent;
+}
+.stock-in { background: #dcfce7; color: #166534; border-color: #bbf7d0; } /* En Stock */
+.stock-low { background: #fef9c3; color: #854d0e; border-color: #fef08a; } /* Bajo Mínimo */
+.stock-out { background: #fee2e2; color: #991b1b; border-color: #fecaca; } /* Sin Stock */
+
+/* --- TIMELINE DE MOVIMIENTOS (ESTILO MOCKUP) --- */
+.timeline-container {
+    position: relative;
+    padding-left: 2rem;
+    margin-top: 1rem;
+}
+.timeline-line {
+    position: absolute;
+    left: 0.75rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e2e8f0;
+    z-index: 1;
+}
+.timeline-item {
+    position: relative;
+    margin-bottom: 1.5rem;
+    z-index: 2;
+}
+.timeline-icon {
+    position: absolute;
+    left: -1.25rem;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #fff;
+    border: 4px solid #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+}
+.timeline-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    padding: 1rem;
+    transition: all 0.2s;
+}
+.timeline-card:hover { border-color: var(--primary); transform: translateX(5px); }
+
+/* --- KPI MINI CARDS --- */
+.mini-card-kpi {
+    padding: 0.75rem;
+    border-radius: 0.75rem;
+    text-align: center;
+    border: 1px solid #eef2f6;
+}
+
+/* --- PASTILLAS DE STOCK (SIN TEXTO) --- */
+.stock-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 0.75rem; /* Estilo redondeado del mockup */
+    font-weight: 800;
+    font-family: var(--font-head);
+    font-size: 0.95rem;
+    min-width: 65px;
+    border: 1.5px solid transparent;
+}
+
+/* Estado: Buena Salud (Verde) */
+.pill-health-good {
+    background-color: #dcfce7 !important;
+    color: #15803d !important;
+    border-color: #bbf7d0 !important;
+}
+
+/* Estado: Warning (Amarillo) */
+.pill-health-warning {
+    background-color: #fef9c3 !important;
+    color: #a16207 !important;
+    border-color: #fef08a !important;
+}
+
+/* Estado: Peligro/Crítico (Rojo) */
+.pill-health-danger {
+    background-color: #fee2e2 !important;
+    color: #b91c1c !important;
+    border-color: #fecaca !important;
+    animation: pulse-red 2s infinite; /* Sutil parpadeo para el agotado */
+}
+
+@keyframes pulse-red {
+    0% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.2); }
+    70% { box-shadow: 0 0 0 6px rgba(185, 28, 28, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0); }
+}
+
+/* --- UTILITARIOS PARA DOBLE COLUMNA EN OFFCANVAS --- */
+.offcanvas-dual-layout { display: flex; height: 100%; overflow: hidden; background-color: var(--bg-body); }
+.col-catalog { width: 55%; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: #fff; }
+.col-cart { width: 45%; display: flex; flex-direction: column; background: #f8fafc; }
+
+/* --- COMPONENTE SEGMENTED CONTROL (Borrador/Confirmado) --- */
+.segmented-control { display: flex; background: #e2e8f0; padding: 3px; border-radius: var(--radius-md); gap: 2px; }
+.segmented-control .btn-check + .btn { 
+    border: none; flex: 1; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); 
+    border-radius: var(--radius-sm); padding: 0.5rem; transition: all 0.2s;
+}
+.segmented-control .btn-check:checked + .btn { background: #fff; color: var(--primary); shadow: var(--shadow-soft); }
+.segmented-control .btn-check:checked + .btn.success-mode { color: #16a34a; }
+
+/* --- CARD DE ITEM EN CARRITO --- */
+.cart-item-card {
+    background: #fff; border: 1px solid var(--border-color); border-radius: var(--radius-md);
+    padding: 1rem; position: relative; box-shadow: var(--shadow-soft); transition: transform 0.2s;
+}
+.cart-item-card:hover { transform: translateX(-4px); border-color: var(--primary-light); }
+
+/* --- SWITCH TOGGLE SAAS --- */
+.switch-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center; /* Centrado como en tu referencia */
+    gap: 1rem;
+    padding: 0.75rem;
+    background-color: #f8fafc;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+.switch-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.text-off { color: var(--text-muted); }
+.text-on { color: var(--primary); }
+
+/* El interruptor en sí */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 26px;
+}
+
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #cbd5e1; /* Gris Slate */
+    transition: .3s;
+    border-radius: 34px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Estado Activo */
+input:checked + .toggle-slider {
+    background-color: var(--primary);
+}
+
+input:checked + .toggle-slider:before {
+    transform: translateX(22px);
+}
+
+/* --- ESTILOS PERSONALIZADOS PARA SWEETALERT (MTPC STYLE) --- */
+.mtpc-swal-popup {
+    border-radius: 1.5rem !important; /* xl en tu mockup */
+    padding: 2rem !important;
+    font-family: var(--font-body) !important;
+}
+
+.mtpc-swal-title {
+    font-family: var(--font-head) !important;
+    font-weight: 800 !important;
+    color: var(--primary) !important;
+    font-size: 1.5rem !important;
+}
+
+.mtpc-swal-html {
+    color: var(--text-muted) !important;
+    font-size: 1rem !important;
+    line-height: 1.6 !important;
+}
+
+/* Botones estilo mockup */
+.mtpc-swal-confirm {
+    padding: 0.8rem 2rem !important;
+    font-weight: 700 !important;
+    border-radius: 0.75rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.mtpc-swal-cancel {
+    padding: 0.8rem 2rem !important;
+    font-weight: 600 !important;
+    border-radius: 0.75rem !important;
+    background-color: transparent !important;
+    color: var(--text-muted) !important;
+    border: 1px solid #e2e8f0 !important;
+}
+
+/* Desenfoque de fondo (Backdrop) */
+.swal2-backdrop-show {
+    backdrop-filter: blur(8px) !important;
+    background: rgba(16, 22, 34, 0.4) !important;
+}
+/* Tarjeta Base */
+.kpi-card-mini {
+    background: #fff;
+    border-radius: 12px;
+    padding: 10px 12px;
+    border: 1px solid #edf2f7;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Iconos pequeños y sutiles */
+.kpi-icon-mini {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+}
+
+/* Colores de identidad Tink Lab / Mi Técnico PC */
+.kpi-blue-mini .kpi-icon-mini { background: #e0eaff; color: #3b82f6; }
+.kpi-yellow-mini .kpi-icon-mini { background: #fffbeb; color: #f59e0b; }
+.kpi-green-mini .kpi-icon-mini { background: #f0fdf4; color: #10b981; }
+
+/* Tipografía controlada */
+.kpi-title-mini {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #718096;
+    letter-spacing: 0.5px;
+    margin-bottom: -2px;
+}
+
+.kpi-value-mini {
+    font-size: 1rem; /* Reducido de h3 a algo más manejable */
+    font-weight: 800;
+}
+
+.kpi-footer-mini {
+    font-size: 0.6rem;
+    margin-top: 4px;
+    border-top: 1px solid #f7fafc;
+    padding-top: 4px;
+}
+/* Contenedor de filtros redondeado */
+.trends-filter-wrapper {
+    display: flex;
+    background-color: #f1f5f9;
+    padding: 4px;
+    border-radius: 12px;
+    gap: 4px;
+}
+
+/* Botones individuales del filtro */
+.btn-segment {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 8px 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.btn-segment.active {
+    background-color: #ffffff;
+    color: var(--stitch-primary);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* Tarjeta de Stock Crítico Estilo SaaS */
+.alert-card-saas {
+    background-color: #fef2f2;
+    border: 1px solid #fee2e2;
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.alert-card-saas .icon-box {
+    width: 32px;
+    height: 32px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ef4444;
+}
+
+/* Barras de progreso ultra finas */
+.progress-slim {
+    height: 4px !important;
+    background-color: #f1f5f9 !important;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+/* Contenedor Gris Claro */
+.trends-filter-wrapper {
+    display: flex;
+    background-color: #f1f5f9; /* Fondo gris de la cápsula */
+    padding: 4px;
+    border-radius: 12px;
+    gap: 4px;
+    border: 1px solid #e2e8f0;
+}
+
+/* Botón Base */
+.btn-segment {
+    border: none !important;
+    background: transparent !important;
+    padding: 8px 16px !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    color: #64748b !important;
+    border-radius: 10px !important;
+    transition: all 0.3s ease !important;
+    cursor: pointer;
+    font-family: 'Montserrat', sans-serif;
+    display: flex;
+    align-items: center;
+}
+
+/* EL ACTIVO: Azul Vibrante #135bec */
+.btn-segment.active {
+    background-color: #135bec !important; /* El azul que pediste */
+    color: #ffffff !important;
+    box-shadow: 0 4px 10px rgba(19, 91, 236, 0.25);
+}
+
+/* Hover para los no seleccionados */
+.btn-segment:not(.active):hover {
+    background-color: #e2e8f0 !important;
+    color: #1e293b !important;
+}
+
+/* Animación de pulso para vencidos */
+@keyframes pulseRedRow {
+    0%, 100% { background-color: rgba(239, 68, 68, 0.05); }
+    50% { background-color: rgba(239, 68, 68, 0.15); }
+}
+
+.animate-pulse-red {
+    animation: pulseRedRow 2s infinite;
+}
+
+/* Tarjeta de Técnico (Custodia) */
+.tech-card {
+    background: #fff;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.tech-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 20px -5px rgba(0,0,0,0.1);
+}
+
+/* Franja superior de estado */
+.tech-card-stripe {
+    height: 6px;
+    width: 100%;
+}
+
+/* Filas de items dentro de la tarjeta */
+.loan-item-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    transition: background 0.2s;
+}
+
+.loan-item-row.overdue {
+    background-color: #fef2f2;
+    border: 1px solid #fee2e2;
+}
+
+.loan-item-icon {
+    width: 32px;
+    height: 32px;
+    background: #f8fafc;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+
+.overdue .loan-item-icon {
+    background: #fff;
+    color: #ef4444;
+}
+
+/* Tarjeta de Licencia Estilo SaaS (Refactorizada) */
+.card-licencia-saas {
+    background: white;
+    border-radius: 1.25rem;
+    border: 1px solid var(--border-color);
+    padding: 1.25rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    box-shadow: var(--shadow-soft);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.card-licencia-saas:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+    border-color: var(--primary-light);
+}
+
+/* Avatar de Licencia con Gradiente */
+.licencia-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Caja de Registro ID */
+.key-info-box {
+    background: #f8fafc;
+    border: 1px solid #f1f5f9;
+    padding: 0.6rem 0.8rem;
+    border-radius: 12px;
+    margin-bottom: 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Grupo de Avatars (Footer) */
+.user-stack {
+    display: flex;
+    align-items: center;
+}
+
+.user-stack-item {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid white;
+    background: #e2e8f0;
+    margin-left: -8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #64748b;
+}
+
+.user-stack-item.more {
+    background: var(--primary-bg);
+    color: var(--primary-light);
+}
+
+/* Color Rojo MTPC para estados críticos */
+.bg-danger-mtpc { 
+    background-color: #ef4444 !important; 
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+/* Ajuste para el botón de vista (ojo) */
+.btn-view-licencia {
+    color: var(--primary-light);
+    background: var(--primary-bg);
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.btn-view-licencia:hover {
+    background: var(--primary-light);
+    color: white;
+}
+/* Caja de Fecha de Activación */
+.activation-date-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.date-label {
+    font-size: 0.55rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #94a3b8; /* Slate 400 */
+    letter-spacing: 0.5px;
+    line-height: 1;
+}
+
+.date-value {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-main);
+    font-family: var(--font-body);
+}
+
+.date-value i {
+    margin-right: 4px;
+    color: var(--primary-light);
+    font-size: 0.7rem;
+}
+/* Caja de Fecha de Activación */
+.activation-date-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.date-label {
+    font-size: 0.55rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #94a3b8; /* Slate 400 */
+    letter-spacing: 0.5px;
+    line-height: 1;
+}
+
+.date-value {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-main);
+    font-family: var(--font-body);
+}
+
+.date-value i {
+    margin-right: 4px;
+    color: var(--primary-light);
+    font-size: 0.7rem;
+}
+/* Muestra el final de la licencia si el espacio es corto */
+/* Truncado por la izquierda para mostrar siempre el final de la licencia */
+.license-key-reverse {
+    display: block;
+    width: 100%;
+    direction: rtl;            /* Mueve el punto de truncado al inicio (izquierda) */
+    text-align: left;          /* Mantiene la alineación visual a la izquierda */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    unicode-bidi: bidi-override; /* Fuerza que el texto se renderice correctamente de fin a inicio */
+}
+
+/* Ajuste al contenedor para que use todo el ancho disponible */
+.key-info-box .key-content {
+    flex: 1;
+    min-width: 0;                 /* Permite que el hijo se encoja para truncar */
+}
+
+/* Contenedor del efecto LED Marquee */
+.key-led-container {
+    overflow: hidden;
+    width: 100%;
+    white-space: nowrap;
+    cursor: help;
+    background: #f8fafc; /* Fondo sutil para resaltar la zona */
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+/* El texto que se mueve */
+.key-led-text {
+    display: inline-block;
+    transition: transform 4s linear; /* Velocidad del desplazamiento */
+    will-change: transform;
+}
+
+/* Al poner el cursor, el texto se desliza hacia la izquierda */
+/* El calc(-100% + 120px) asegura que el final del texto llegue al borde derecho del contenedor */
+.key-led-container:hover .key-led-text {
+    transform: translateX(calc(-100% + 120px)); 
+}
+/* Contenedor principal del Box de Identidad */
+.key-info-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 12px;
+    margin-bottom: 1.25rem;
+    display: flex;
+    flex-direction: column; /* Asegura el orden vertical: arriba etiqueta, abajo valor */
+    gap: 4px;
+    position: relative;
+}
+
+/* La etiqueta pequeña superior */
+.key-label {
+    font-size: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #94a3b8;
+    letter-spacing: 0.5px;
+    display: block;
+}
+
+/* Contenedor del valor con efecto LED */
+.key-led-container {
+    overflow: hidden;
+    white-space: nowrap;
+    width: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.key-led-text {
+    display: inline-block;
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-main);
+    transition: transform 4s linear;
+    will-change: transform;
+}
+
+/* El efecto LED Marquee al hacer Hover */
+.key-led-container:hover .key-led-text {
+    transform: translateX(calc(-100% + 140px)); /* Se ajusta según el ancho del card */
+}
+
+/* Icono de huella posicionado a la derecha */
+.key-icon-bg {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.1rem;
+    color: #cbd5e1;
+    opacity: 0.4;
+    pointer-events: none;
+}
+/* Bloque de Identificador / Key */
+.key-info-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 10px 14px;
+    border-radius: 12px;
+    margin-bottom: 1.25rem;
+    display: flex;
+    flex-direction: column; /* Etiqueta arriba, contenido abajo */
+    gap: 2px;
+}
+
+/* Fila inferior: Valor + Icono */
+.key-content-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+}
+
+/* Contenedor del efecto Marquee */
+.key-marquee-wrapper {
+    flex: 1;
+    min-width: 0; /* Vital para que el truncado funcione en flex */
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.key-marquee-text {
+    display: inline-block;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-main);
+    transition: transform 4s linear;
+}
+
+/* Animación LED al pasar el mouse */
+.key-marquee-wrapper:hover .key-marquee-text {
+    transform: translateX(calc(-100% + 120px));
+}
+
+/* Icono Key FontAwesome */
+.key-icon-styled {
+    font-size: 0.9rem;
+    color: #cbd5e1;
+    flex-shrink: 0; /* Evita que el icono se aplaste */
+}
+/* Tarjeta de asignación individual dentro del Offcanvas */
+.user-assign-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: transform 0.2s, border-color 0.2s;
+}
+
+.user-assign-card:hover {
+    border-color: var(--primary-light);
+    transform: translateX(4px);
+}
+
+.hover-danger:hover {
+    background-color: #fee2e2 !important;
+    color: #ef4444 !important;
+}
+
+/* Espaciado vertical para listas */
+.space-y-3 > * + * {
+    margin-top: 0.75rem;
+}
+/* Estilos Línea de Tiempo (Stitch Model) */
+.stitch-timeline {
+    position: relative;
+    padding-left: 30px;
+    margin-top: 1.5rem;
+}
+
+.stitch-timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #e2e8f0;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 1.5rem;
+    animation: fadeIn 0.4s ease forwards;
+}
+
+.timeline-dot {
+    position: absolute;
+    left: -30px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: 3px solid var(--primary);
+    z-index: 2;
+}
+
+.timeline-content {
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    transition: transform 0.2s;
+}
+
+.timeline-content:hover {
+    border-color: var(--primary-light);
+    transform: translateX(5px);
+}
+/* Bordes ultra-redondeados para el Offcanvas */
+.offcanvas-std-modern {
+    border-top-left-radius: 2rem !important;
+    border-bottom-left-radius: 2rem !important;
+}
+
+/* Sección de Edición armonizada con el Timeline */
+.edit-node-section {
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    position: relative;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    /* Efecto de sombra sutil para destacar sobre el fondo gris */
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+/* Conector visual hacia la línea de tiempo */
+.edit-node-section::after {
+    content: '';
+    position: absolute;
+    bottom: -2rem;
+    left: 22px; /* Alineado con el timeline-dot */
+    width: 2px;
+    height: 2rem;
+    background: repeating-linear-gradient(to bottom, #e2e8f0, #e2e8f0 4px, transparent 4px, transparent 8px);
+}
+
+.offcanvas-header-title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--primary);
+    font-family: var(--font-head);
+}
+/* Offcanvas con bordes rectos estándar */
+.offcanvas-std-clean {
+    border-top-left-radius: 0 !important;
+    border-bottom-left-radius: 0 !important;
+    border-left: 1px solid var(--border-color);
+}
+
+/* Ajuste para que la sección de edición siga alineada al timeline */
+.edit-node-section {
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); /* Usamos el radio estándar del proyecto */
+    position: relative;
+    padding: 1.25rem;
+    margin-bottom: 2rem;
+}
+
+/* Conector visual hacia la línea de tiempo */
+.edit-node-section::after {
+    content: '';
+    position: absolute;
+    bottom: -2rem;
+    left: 22px; 
+    width: 2px;
+    height: 2rem;
+    background: repeating-linear-gradient(to bottom, #e2e8f0, #e2e8f0 4px, transparent 4px, transparent 8px);
+}
+/* Reducción de altura y fuentes para la tarjeta compacta */
+.card-licencia-compact {
+    padding: 1rem !important; /* De 1.25rem a 1rem */
+}
+
+.avatar-compact {
+    width: 36px !important; /* De 48px a 36px */
+    height: 36px !important;
+    font-size: 0.85rem !important;
+}
+
+.badge-compact {
+    padding: 0.2rem 0.5rem !important;
+    font-size: 0.6rem !important;
+}
+
+.title-compact {
+    font-size: 0.9rem !important; /* Nombre del producto */
+}
+
+.key-box-compact {
+    padding: 6px 10px !important; /* Box del diferenciador más delgado */
+    margin-bottom: 0.75rem !important;
+}
+
+.text-xs-mtpc {
+    font-size: 0.65rem !important; /* Para fechas y SKU */
+}
+/* --- ESTILO DE PESTAÑAS DE CONFIGURACIÓN --- */
+
+/* Contenedor tipo cápsula */
+.nav-pills-stitch {
+    background: #f1f5f9; /* Gris suave de fondo */
+    padding: 4px;
+    border-radius: var(--radius-md);
+    display: inline-flex;
+    gap: 4px;
+    border: 1px solid var(--border-color);
+    list-style: none;
+}
+
+/* Botones de navegación (Equipo / Maestros) */
+.nav-pills-stitch .nav-link {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 8px 20px;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+}
+
+/* Estado Activo: El botón resalta con fondo blanco y sombra */
+.nav-pills-stitch .nav-link.active {
+    background: #ffffff !important;
+    color: var(--primary) !important;
+    box-shadow: var(--shadow-soft);
+}
+
+/* Hover para los elementos no seleccionados */
+.nav-pills-stitch .nav-link:not(.active):hover {
+    background: #e2e8f0;
+    color: var(--text-main);
+}
+
+
+
+/* --- LÓGICA DE VISIBILIDAD (ÁRBOL EXCLUSIVO) --- */
+
+/* 1. Por defecto, los hijos están OCULTOS */
+.tree-children-container {
+    display: none; 
+    margin-left: 1.5rem;
+    padding-left: 1rem;
+    border-left: 2px solid #e2e8f0;
+    overflow: hidden; /* Para animaciones limpias */
+}
+
+/* 2. Solo se muestran si el padre tiene la clase .active */
+.tree-parent-node.active .tree-children-container {
+    display: block;
+    animation: slideDown 0.3s ease;
+}
+
+/* 3. Rotación de la flecha cuando está activo */
+.tree-parent-node.active .transition-icon {
+    transform: rotate(90deg);
+    color: var(--primary);
+}
+
+/* Animación suave de apertura */
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+/* =========================================
+   5. MAESTROS V2 (CLEAN TREE STRUCTURE)
+   Reutilizando variables del Core
+   ========================================= */
+
+/* Tarjeta contenedora de la columna (bg-white rounded-xl border) */
+.master-col-card {
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* Sombra suave como en la referencia */
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* Cabecera gris clara (bg-slate-50/50) */
+.master-col-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    background-color: #f8fafc; /* Gris muy suave */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Icono cuadrado en cabecera */
+.header-icon-square {
+    width: 2rem; height: 2rem;
+    border-radius: 0.25rem; /* rounded */
+    display: flex; align-items: center; justify-content: center;
+    margin-right: 0.75rem;
+}
+
+/* --- LOGICA DEL ÁRBOL (TREE VIEW) --- */
+
+/* Fila del Padre (Categoría) */
+.tree-parent-row {
+    display: flex; 
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+    margin-bottom: 2px;
+}
+
+.tree-parent-row:hover, .tree-parent-row.active-state {
+    background-color: #f1f5f9; /* hover:bg-slate-50 */
+    border-color: var(--border-color);
+}
+
+/* Contenedor de Hijos (Indentación y Línea) */
+.tree-children-wrapper {
+    margin-left: 1.5rem; /* Indentación */
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--border-color); /* La línea vertical del árbol */
+    display: none; /* Oculto por defecto */
+}
+
+/* Cuando el padre tiene clase 'active', mostramos hijos */
+.tree-item-group.active .tree-children-wrapper {
+    display: block;
+    animation: slideDown 0.2s ease-out;
+}
+
+/* Acciones (Editar/Borrar) - Solo visibles en Hover */
+.tree-actions {
+    opacity: 0;
+    transition: opacity 0.2s;
+    margin-left: auto;
+    display: flex; gap: 4px;
+}
+
+.tree-parent-row:hover .tree-actions, 
+.tree-child-row:hover .tree-actions {
+    opacity: 1;
+}
+
+/* Animación simple */
+@keyframes slideDown { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+/* =========================================
+   ESTILOS PARA CONTENEDORES MAESTROS (FALTANTES)
+   ========================================= */
+
+/* La tarjeta blanca que envuelve cada columna */
+.master-tree-container {
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: var(--shadow-soft);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.master-tree-container:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+}
+
+/* La cabecera de color (Azul/Amarillo/Verde/Cian) */
+.tree-header {
+    padding: 1rem;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Botón "+" en la cabecera */
+.btn-tree-add {
+    background: #ffffff;
+    border: 1px solid rgba(0,0,0,0.1);
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.8rem;
+    color: inherit; /* Hereda el color del texto (primary/warning/etc) */
+}
+
+.btn-tree-add:hover {
+    background: rgba(255,255,255,0.8);
+    transform: scale(1.05);
+}
+
+/* =========================================
+   6. MAESTROS V2 (CLEAN TECH / TAILWIND REPLICA)
+   Adaptación a CSS Nativo
+   ========================================= */
+
+/* --- UTILIDADES DE GRID Y FLEX (IMITANDO TAILWIND) --- */
+.grid-3-cols {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr); /* lg:grid-cols-3 */
+    gap: 1.5rem; /* gap-6 */
+    height: 100%;
+}
+
+@media (max-width: 992px) {
+    .grid-3-cols { grid-template-columns: 1fr; } /* Responsive */
+}
+
+/* --- TARJETA CONTENEDORA DE COLUMNA (bg-white rounded-xl border shadow-sm) --- */
+.clean-col-card {
+    background-color: #ffffff;
+    border: 1px solid var(--border-color); /* border-slate-200 */
+    border-radius: 0.75rem; /* rounded-xl */
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); /* shadow-sm */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+}
+
+/* --- CABECERA DE COLUMNA (p-4 border-b flex justify-between items-center) --- */
+.clean-col-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: rgba(248, 250, 252, 0.5); /* bg-slate-50/50 */
+}
+
+/* Icono de Cabecera (w-8 h-8 rounded flex items-center justify-center) */
+.header-icon-box {
+    width: 2rem; height: 2rem;
+    border-radius: 0.25rem;
+    display: flex; align-items: center; justify-content: center;
+    margin-right: 0.75rem;
+}
+
+/* --- ÁRBOL DE PRODUCTOS (TREE VIEW) --- */
+
+/* Fila Padre (group flex items-center p-2 rounded hover:bg-slate-50) */
+.tree-node-row {
+    display: flex; 
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+    border: 1px solid transparent;
+    margin-bottom: 2px;
+}
+
+.tree-node-row:hover {
+    background-color: #f8fafc; /* hover:bg-slate-50 */
+    border-color: var(--border-color); /* hover:border-slate-200 */
+}
+
+/* Texto truncado (truncate block text-sm font-medium) */
+.tree-node-text {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    color: var(--text-main); /* text-slate-700 */
+}
+
+/* Badge de conteo (text-xs bg-slate-100 px-1.5 py-0.5 rounded) */
+.tree-count-badge {
+    font-size: 0.75rem; /* text-xs */
+    color: var(--text-muted);
+    background-color: #f1f5f9; /* bg-slate-100 */
+    padding: 0.125rem 0.375rem;
+    border-radius: 0.25rem;
+    margin-right: 0.75rem;
+}
+
+/* Acciones en Hover (opacity-0 group-hover:opacity-100) */
+.hover-actions {
+    opacity: 0;
+    transition: opacity 0.2s;
+    display: flex; gap: 0.25rem;
+}
+
+.tree-node-row:hover .hover-actions { opacity: 1; }
+
+/* Botón de acción mini (p-1 hover:bg-primary/10 rounded) */
+.btn-mini-action {
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+.btn-mini-action:hover { color: var(--primary); background-color: rgba(19, 127, 236, 0.1); }
+.btn-mini-action.danger:hover { color: #ef4444; background-color: rgba(239, 68, 68, 0.1); }
+
+/* --- CONTENEDOR DE HIJOS CON LÍNEA (border-l ml-6 pl-2) --- */
+.tree-children-block {
+    margin-left: 1.5rem; /* ml-6 */
+    padding-left: 0.5rem; /* pl-2 */
+    border-left: 1px solid var(--border-color); /* border-slate-200 */
+    display: none; /* Oculto por defecto */
+    margin-top: 0.125rem;
+}
+.tree-group {
+    position: relative;
+    display: block;
+}
+/* Estado Activo: Mostrar Hijos */
+.tree-group.active .tree-children-block { display: block; overflow: hidden; }
+
+.tree-group.active .tree-children-block {
+    display: block !important;
+}
+/* Rotación de flecha */
+.tree-group.active .arrow-icon {
+    transform: rotate(90deg);
+    color: var(--primary);
+    transition: transform 0.2s ease;
+}
+
+.arrow-icon { transition: transform 0.2s; }
+
+/* --- MAPA VISUAL (UBICACIONES) --- */
+.visual-map-container {
+    height: 8rem; /* h-32 */
+    background-color: #f1f5f9;
+    border-top: 1px solid var(--border-color);
+    position: relative;
+    overflow: hidden;
+}
+/* =========================================
+   8. MAESTROS V3 (SAAS MANAGER STYLE)
+   ========================================= */
+
+/* Contenedor de la Tarjeta (Más padding, posición relativa para el glow) */
+.master-tree-container {
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    padding: 1.5rem; /* Padding interno estilo SaaS */
+    box-shadow: var(--shadow-soft);
+    transition: box-shadow 0.3s ease;
+}
+
+.master-tree-container:hover {
+    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
+}
+
+/* Efecto de Resplandor (Blur) en la esquina superior derecha */
+.blur-glow {
+    position: absolute;
+    right: 0; top: 0;
+    width: 120px; height: 120px;
+    transform: translate(20%, -20%);
+    border-radius: 50%;
+    filter: blur(40px);
+    opacity: 0.6;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* Icono Gigante de la Cabecera */
+.header-icon-xl {
+    width: 3rem; height: 3rem; /* 48px */
+    border-radius: 0.75rem; /* xl */
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem;
+}
+
+/* Tarjeta del Nodo Padre (Categoría) */
+.config-list-item {
+    background-color: #f8fafc; /* bg-slate-50 */
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    transition: all 0.2s ease;
+}
+.config-list-item:hover {
+    background-color: #ffffff;
+    box-shadow: var(--shadow-soft);
+    border-color: var(--primary-light);
+}
+
+/* Ocultar/Mostrar acciones en Hover */
+.action-hover-group {
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.config-list-item:hover .action-hover-group,
+.config-child-row:hover .action-hover-group {
+    opacity: 1;
+}
+
+/* Botones de acción estilizados (Circulares) */
+.btn-action-circle {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    transition: all 0.2s;
+    cursor: pointer;
+}
+.btn-action-circle:hover {
+    border-color: var(--primary-light);
+    color: var(--primary);
+    box-shadow: var(--shadow-soft);
+    transform: scale(1.05);
+}
+.btn-action-circle.danger:hover {
+    border-color: #fca5a5;
+    color: #ef4444;
+}
+
+/* Botón inferior gigante (Manage Categories) */
+.btn-saas-manage {
+    width: 100%;
+    padding: 0.7rem;
+    background: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--primary);
+    font-weight: 700;
+    font-family: var(--font-body);
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+.btn-saas-manage:hover {
+    background: #f8fafc;
+    border-color: rgba(19, 127, 236, 0.3);
+}
+/* =========================================
+   ESTILOS PREMIUM PARA COLUMNAS SIMPLES
+   ========================================= */
+
+/* 1. Tarjetas estilo Grid (Para la columna Socios) */
+.config-grid-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 0.5rem;
+    background-color: #f8fafc; /* bg-slate-50 */
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg); /* rounded-xl */
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    height: 100%;
+    position: relative;
+}
+
+.config-grid-card:hover {
+    background-color: #ffffff;
+    box-shadow: var(--shadow-soft);
+    border-color: var(--primary-light);
+    transform: translateY(-2px);
+}
+
+.config-grid-icon {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.config-grid-title {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-main);
+    font-family: var(--font-head);
+    margin: 0;
+    line-height: 1.2;
+}
+
+/* 2. Tarjetas estilo Bloque (Para Ubicaciones y Cuentas) */
+.config-block-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.85rem;
+    background-color: #f8fafc; /* bg-slate-50 */
+    border: 1px solid transparent;
+    border-radius: var(--radius-md); /* rounded-lg */
+    margin-bottom: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.config-block-card:hover {
+    background-color: #ffffff;
+    border-color: var(--border-color);
+    box-shadow: var(--shadow-soft);
+}
+
+/* Icono en cajita blanca (Efecto Tailwind) */
+.config-block-icon {
+    width: 32px; height: 32px;
+    background-color: #ffffff;
+    border-radius: 0.375rem;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05); /* shadow-sm */
+    border: 1px solid rgba(0,0,0,0.02);
+}
+
+/* 2. REGLA CLAVE: Mostrar los botones de editar al hacer hover en CUALQUIER tarjeta */
+.config-block-card:hover .action-hover-group,
+.config-grid-card:hover .action-hover-group {
+    opacity: 1;
+}
+
+/* 3. Evitamos el "salto" de tamaño en los textos del grid de Socios */
+.config-grid-title {
+    width: 100%;
+    padding: 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Agrega esta línea debajo de .kpi-green en tu CSS */
+.kpi-info .kpi-icon-wrapper { background-color: #cffafe; color: #0891b2; }
+/* =========================================
+   KPIs ESTILO MODERN (Prefijo Cats)
+   ========================================= */
+.cats-kpi-card {
+    background-color: #ffffff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    box-shadow: var(--shadow-soft);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.cats-kpi-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+}
+
+.cats-kpi-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.cats-kpi-title {
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.cats-kpi-icon {
+    width: 34px; height: 34px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+
+.cats-kpi-value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: var(--text-main);
+    font-family: var(--font-head);
+    margin: 0;
+    line-height: 1.2;
+}
+
+.cats-kpi-subtitle {
+    margin-top: 0.75rem;
+    font-size: 0.75rem; /* text-xs */
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+</style>

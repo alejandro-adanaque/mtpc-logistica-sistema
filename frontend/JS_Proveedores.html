@@ -1,0 +1,291 @@
+<script>
+/**
+ * MÓDULO: GESTIÓN DE PROVEEDORES V3 (Stitch UI Standard)
+ * NOTA: Se eliminaron backticks para evitar errores de inyección en GAS.
+ */
+
+var listaProveedoresCache = []; 
+var categoriasCacheProv = [];
+var estadoTablaProv = { pagina: 1, tamano: 10, busqueda: "", filtros: { categoria: "", orden: "az" } };
+let timeoutSearch;
+
+// ==========================================
+// 1. RENDERIZADO E INICIALIZACIÓN
+// ==========================================
+
+function renderProveedores() {
+    var container = document.getElementById('app-container');
+    var loaderHTML = '<div class="loader-container animate__animated animate__fadeIn">' +
+                     '<div class="stitch-spinner"></div>' +
+                     '<h5 class="fw-bold mt-3 text-primary">Cargando Directorio</h5>' +
+                     '<p class="small text-muted">Sincronizando proveedores...</p>' +
+                     '</div>';
+    container.innerHTML = loaderHTML;
+
+    google.script.run.withSuccessHandler(function(html) {
+        container.innerHTML = html;
+        cargarDatosInicialesProv();
+    }).obtenerVista('View_Proveedores');
+}
+
+function cargarDatosInicialesProv() {
+    google.script.run.withSuccessHandler(function(res) {
+        if(res.exito) {
+            categoriasCacheProv = res.datos;
+            llenarSelectsMaestrosProv(res.datos);
+            aplicarFiltrosProv(true);
+        }
+    }).srvObtenerCategoriasProveedor();
+}
+
+function llenarSelectsMaestrosProv(cats) {
+    var selFiltro = document.getElementById('filtro-cat-prov');
+    var selForm = document.getElementById('prov-categoria');
+    
+    var htmlFiltro = '<option value="">Todas las Categorías</option>';
+    var htmlForm = '<option value="">Seleccione Categoría...</option>';
+    
+    cats.forEach(function(c) {
+        var opt = '<option value="' + c.id + '">' + c.nombre + '</option>';
+        htmlFiltro += opt;
+        htmlForm += opt;
+    });
+
+    if(selFiltro) selFiltro.innerHTML = htmlFiltro;
+    if(selForm) selForm.innerHTML = htmlForm;
+}
+
+// ==========================================
+// 2. MOTOR DE BÚSQUEDA Y PAGINACIÓN
+// ==========================================
+
+function aplicarFiltrosProv(resetPagina) {
+    clearTimeout(timeoutSearch);
+    
+    var tbody = document.getElementById('tabla-prov-body');
+    if(tbody) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5"><div class="stitch-spinner mx-auto" style="width:24px;height:24px;border-width:2px;"></div></td></tr>';
+    }
+
+    var txt = document.getElementById('buscador-prov') ? document.getElementById('buscador-prov').value : "";
+    var cat = document.getElementById('filtro-cat-prov') ? document.getElementById('filtro-cat-prov').value : "";
+    var ord = document.getElementById('filtro-orden-prov') ? document.getElementById('filtro-orden-prov').value : "az";
+    
+    timeoutSearch = setTimeout(function() {
+        estadoTablaProv.busqueda = txt;
+        estadoTablaProv.filtros.categoria = cat;
+        estadoTablaProv.filtros.orden = ord;
+        if(resetPagina) estadoTablaProv.pagina = 1;
+        cargarTablaRemotaProv();
+    }, 400); 
+}
+
+function cargarTablaRemotaProv() {
+    var tbody = document.getElementById('tabla-prov-body');
+    if(!tbody) return;
+
+    // --- CARGA VISUAL INMEDIATA ---
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5">' +
+                      '<div class="stitch-spinner mx-auto"></div>' +
+                      '<p class="text-muted small mt-2 fw-bold animate__animated animate__pulse animate__infinite">Actualizando lista...</p>' +
+                      '</td></tr>';
+
+    google.script.run.withSuccessHandler(function(res) {
+        if(res.exito) {
+            listaProveedoresCache = res.datos;
+            renderizarFilasProv(res.datos);
+            actualizarPaginacionUIProv(res.paginacion);
+            actualizarKPIProv(res.paginacion.totalRegistros);
+        } else {
+            MTPC_Toast.error("Error al cargar: " + res.error);
+        }
+    }).srvListarProveedores(estadoTablaProv.pagina, estadoTablaProv.tamano, estadoTablaProv.busqueda, estadoTablaProv.filtros);
+}
+
+function renderizarFilasProv(lista) {
+    var tbody = document.getElementById('tabla-prov-body');
+    if (!tbody) return;
+
+    if (lista.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5 text-muted">No hay registros.</td></tr>';
+        return;
+    }
+
+    var mapCats = {};
+    categoriasCacheProv.forEach(function(c) { mapCats[c.id] = c.nombre; });
+
+    var h = '';
+    for (var i = 0; i < lista.length; i++) {
+        var p = lista[i];
+        var catName = mapCats[p.categoria_id] || 'General';
+        var inicial = p.razon_social ? p.razon_social.charAt(0).toUpperCase() : '?';
+        var tel = p.telefono || '';
+
+        h += '<tr class="align-middle border-bottom">';
+        h += '<td class="ps-4 py-3"><div class="d-flex align-items-center gap-3">';
+        h += '<div class="rounded bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center fw-bold" style="width:38px; height:38px;">' + inicial + '</div>';
+        h += '<div><div class="fw-bold text-dark font-head">' + p.razon_social + '</div>';
+        h += '<div class="small text-muted font-monospace">' + (p.ruc || 'S/R') + '</div></div></div></td>';
+        h += '<td><span class="badge-std badge-success border">' + catName + '</span></td>';
+        h += '<td><div class="text-dark small">' + (p.contacto_nombre || '-') + '</div></td>';
+        h += '<td class="small text-muted">' + tel + '</td>';
+        h += '<td class="pe-4 text-end">';
+        // Botones con clase btn-icon-only para forzar el cuadrado
+        h += '<button class="btn-std btn-icon-only btn-std-outline text-success me-1 shadow-sm" onclick="contactarWhatsapp(\'' + tel + '\')" title="WhatsApp"><i class="fa-brands fa-whatsapp fa-lg"></i></button>';
+        h += '<button class="btn-std btn-icon-only btn-std-outline text-muted me-1 shadow-sm" onclick="abrirOffcanvasProveedor(' + p.id + ')" title="Editar"><i class="fa-solid fa-pen"></i></button>';
+        h += '<button class="btn-std btn-icon-only btn-std-outline text-danger shadow-sm" onclick="eliminarProveedor(' + p.id + ')" title="Eliminar"><i class="fa-regular fa-trash-can"></i></button>';
+        h += '</td></tr>';
+    }
+    tbody.innerHTML = h;
+}
+
+function actualizarPaginacionUIProv(pag) {
+    var info = document.getElementById('info-paginacion-prov');
+    if(info) info.innerHTML = 'Mostrando página <b>' + pag.paginaActual + '</b> de <b>' + pag.totalPaginas + '</b>';
+    
+    var container = document.getElementById('paginacion-container-prov');
+    if(!container) return;
+    
+    var html = '';
+    var disPrev = pag.paginaActual === 1 ? 'disabled' : '';
+    var disNext = pag.paginaActual >= pag.totalPaginas ? 'disabled' : '';
+
+    html += '<button class="page-btn ' + disPrev + '" onclick="cambiarPaginaProv(' + (pag.paginaActual - 1) + ')"><i class="fa-solid fa-chevron-left"></i></button>';
+    html += '<button class="page-btn ' + disNext + '" onclick="cambiarPaginaProv(' + (pag.paginaActual + 1) + ')"><i class="fa-solid fa-chevron-right"></i></button>';
+    
+    container.innerHTML = html;
+}
+
+function cambiarPaginaProv(nuevaPagina) {
+    if(nuevaPagina < 1) return;
+    estadoTablaProv.pagina = nuevaPagina;
+    cargarTablaRemotaProv();
+}
+
+function actualizarKPIProv(total) {
+    var container = document.getElementById('metrics-prov-container');
+    if(container) {
+        container.innerHTML = '<div class="col-md-4 col-xl-3 animate__animated animate__fadeIn">' +
+                              '<div class="card-kpi kpi-blue">' +
+                              '<div class="kpi-icon-wrapper"><i class="fa-solid fa-users"></i></div>' +
+                              '<div><div class="kpi-title">Total Directorio</div>' +
+                              '<div class="kpi-value">' + total + '</div>' +
+                              '<div class="kpi-subtitle">Proveedores registrados</div></div>' +
+                              '</div></div>';
+    }
+}
+
+// ==========================================
+// 3. OPERACIONES (CRUD)
+// ==========================================
+
+function abrirOffcanvasProveedor(idEditar) {
+    var titleEl = document.getElementById('offcanvasProvTitle');
+    var subtEl = document.getElementById('offcanvasProvSubtitle');
+    
+    var inputs = {
+        id: document.getElementById('prov-id'),
+        ruc: document.getElementById('prov-ruc'),
+        razon: document.getElementById('prov-razon'),
+        cat: document.getElementById('prov-categoria'),
+        cont: document.getElementById('prov-contacto'),
+        tel: document.getElementById('prov-tel'),
+        banco: document.getElementById('prov-banco'),
+        dir: document.getElementById('prov-dir')
+    };
+
+    if (idEditar) {
+        var p = listaProveedoresCache.find(function(x) { return x.id === idEditar; });
+        if (!p) return MTPC_Toast.error("No se encontraron datos locales");
+
+        titleEl.innerText = 'Editar Proveedor';
+        subtEl.innerText = 'Editando: ' + p.razon_social;
+        
+        inputs.id.value = p.id;
+        inputs.ruc.value = p.ruc || '';
+        inputs.razon.value = p.razon_social || '';
+        inputs.cat.value = p.categoria_id || '';
+        inputs.cont.value = p.contacto_nombre || '';
+        inputs.tel.value = p.telefono || '';
+        inputs.banco.value = p.cuenta_bancaria || '';
+        inputs.dir.value = p.direccion || '';
+    } else {
+        titleEl.innerText = 'Nuevo Proveedor';
+        subtEl.innerText = 'Alta de socio comercial';
+        for (var key in inputs) { if(inputs[key]) inputs[key].value = ''; }
+    }
+    
+    var offcanvas = new bootstrap.Offcanvas(document.getElementById('offcanvasProveedor'));
+    offcanvas.show();
+}
+
+function guardarProveedor() {
+    var id = document.getElementById('prov-id').value;
+    var datos = { 
+        ruc: document.getElementById('prov-ruc').value.trim(), 
+        razon_social: document.getElementById('prov-razon').value.trim(), 
+        categoria_id: parseInt(document.getElementById('prov-categoria').value), 
+        contacto_nombre: document.getElementById('prov-contacto').value.trim(), 
+        telefono: document.getElementById('prov-tel').value.trim(), 
+        cuenta_bancaria: document.getElementById('prov-banco').value.trim(), 
+        direccion: document.getElementById('prov-dir').value.trim() 
+    };
+
+    if (!datos.ruc || !datos.razon_social || isNaN(datos.categoria_id)) {
+        return MTPC_Toast.error('Faltan campos obligatorios (*)');
+    }
+
+    MTPC_Toast.loading('Procesando...');
+
+    google.script.run.withSuccessHandler(function(res) {
+        if (res.exito) { 
+            MTPC_Toast.success('Proveedor guardado correctamente'); 
+            var offcanvasElement = document.getElementById('offcanvasProveedor');
+            var instance = bootstrap.Offcanvas.getInstance(offcanvasElement);
+            if(instance) instance.hide();
+            cargarTablaRemotaProv(); 
+        } else { 
+            var msg = res.error;
+            if(msg.indexOf('23505') !== -1) msg = "El RUC ya existe.";
+            MTPC_Toast.error(msg); 
+        }
+    }).srvGuardarMaestro('proveedores', datos, id || null);
+}
+
+function eliminarProveedor(id) {
+    Swal.fire({
+        title: '¿Eliminar Proveedor?', 
+        text: "Esta acción es irreversible.", 
+        icon: 'warning',
+        showCancelButton: true, 
+        confirmButtonColor: '#dc3545', 
+        confirmButtonText: 'Sí, eliminar',
+        cancelButtonText: 'Cancelar'
+    }).then(function(r) {
+        if (r.isConfirmed) { 
+            MTPC_Toast.loading('Eliminando...'); 
+            google.script.run.withSuccessHandler(function(res) { 
+                if (res.exito) { 
+                    MTPC_Toast.success('Registro eliminado'); 
+                    cargarTablaRemotaProv(); 
+                } else { 
+                    MTPC_Toast.error(res.error); 
+                } 
+            }).srvEliminarMaestro('proveedores', id);
+        }
+    });
+}
+
+function contactarWhatsapp(telefono) {
+    if (!telefono || telefono.trim() === '-' || telefono.trim() === '') {
+        MTPC_Toast.error("Sin número registrado.");
+        return;
+    }
+    var num = telefono.replace(/\D/g, '');
+    if (num.length < 7) {
+        MTPC_Toast.error("Número inválido.");
+        return;
+    }
+    window.open('https://wa.me/' + num, '_blank');
+}
+</script>

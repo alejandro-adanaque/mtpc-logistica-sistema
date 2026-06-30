@@ -1,0 +1,1072 @@
+<script>
+/**
+ * MÓDULO: GESTIÓN DE COMPRAS (V2)
+ * Lógica Completa: Carrito, Análisis y PDF
+ */
+
+var listaProductosGlobal = [];
+var carritoCompras = [];
+var proveedoresCache = [];
+var cuentasCache = [];
+var listaComprasCache = [];
+var chartInstance = null; 
+var currentPageComp = 1;
+var itemsPerPageComp = 10;
+var currentPageCatalog = 1;
+var itemsPerPageCatalog = 10;
+var listaFiltradaGlobal = []; 
+
+// ==========================================
+// 1. RENDERIZADO
+// ==========================================
+function renderCompras() {
+    var container = document.getElementById('app-container');
+    if (!container) return;
+
+    // Loader Corporativo (Igual a Productos)
+    container.innerHTML = `
+        <div class="loader-container animate__animated animate__fadeIn">
+            <div class="stitch-spinner"></div>
+            <h5 class="fw-bold mt-3 text-primary">Cargando Compras</h5>
+            <p class="small text-muted">Sincronizando historial y proveedores...</p>
+        </div>`;
+    
+    google.script.run.withSuccessHandler(html => {
+        container.innerHTML = html;
+        cargarDatosCompras(); // Carga inicial de datos
+    }).obtenerVista('View_Compras');
+}
+// ==========================================
+// 2. LÓGICA DE DATOS
+// ==========================================
+function cargarDatosCompras() {
+    // Si la tabla ya existe (recarga parcial), poner loader solo ahí
+    var tbody = document.getElementById('tabla-compras-body');
+    if(tbody) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5"><div class="stitch-spinner mx-auto"></div></td></tr>';
+    }
+
+    // Llamada al backend (INTACTA)
+    google.script.run.withSuccessHandler(res => {
+        if(!res.exito) return StitchFeedback.error(res.error);
+        listaComprasCache = res.datos || []; 
+        poblarFiltrosHeader(listaComprasCache);
+        renderizarMetricas(listaComprasCache);
+        // Si no es recarga parcial (primera vez), forzamos página 1
+        // Si es recarga, mantenemos la página actual si es posible
+        aplicarFiltrosCompras(false); 
+    }).dbSelect('compras', '*, proveedores(razon_social), cuentas_pago(nombre)', '&order=id.desc'); 
+}
+
+function poblarFiltrosHeader(datos) {
+    var provs = [...new Set(datos.map(d => d.proveedores?.razon_social).filter(Boolean))].sort();
+    var selProv = document.getElementById('filtro-prov');
+    if(!selProv) return;
+    let htmlProv = '<option value="">Todos los Proveedores</option>';
+    provs.forEach(p => htmlProv += `<option value="${p}">${p}</option>`);
+    selProv.innerHTML = htmlProv;
+}
+
+function renderizarMetricas(datos) {
+    // --- 1. LÓGICA DE CÁLCULO (CORREGIDA) ---
+    var hoy = new Date(); 
+    var mesActual = hoy.getMonth(); 
+    var anioActual = hoy.getFullYear();
+    
+    // Filtro por mes actual (todas las órdenes del mes)
+    var comprasMes = datos.filter(c => { 
+        var d = new Date(c.fecha_emision + 'T00:00:00'); 
+        return d.getMonth() === mesActual && d.getFullYear() === anioActual; 
+    });
+    
+    // CORRECCIÓN: Solo sumamos el total si el estado es 'Confirmado'
+    var totalInversion = comprasMes
+        .filter(c => c.estado === 'Confirmado') // <-- Filtro clave de seguridad
+        .reduce((sum, c) => sum + parseFloat(c.total || 0), 0);
+    
+    // Conteo de órdenes pendientes (Borradores)
+    var pendientes = datos.filter(c => c.estado !== 'Confirmado').length;
+    
+    var container = document.getElementById('metrics-compras');
+    if (!container) return;
+
+    // --- 2. RENDERIZADO ---
+    var html = '';
+
+    // KPI 1: Órdenes del Mes (Muestra el conteo total de transacciones iniciadas)
+    html += `
+        <div class="col-md-4">
+            <div class="card-kpi kpi-blue">
+                <div class="kpi-icon-wrapper"><i class="fa-solid fa-file-invoice"></i></div>
+                <div>
+                    <div class="kpi-title">Órdenes (Mes)</div>
+                    <div class="kpi-value">${comprasMes.length}</div>
+                    <div class="kpi-subtitle">Total generadas</div>
+                </div>
+            </div>
+        </div>`;
+
+    // KPI 2: Inversión Real (Solo Confirmados)
+    html += `
+        <div class="col-md-4">
+            <div class="card-kpi kpi-green">
+                <div class="kpi-icon-wrapper"><i class="fa-solid fa-sack-dollar"></i></div>
+                <div>
+                    <div class="kpi-title">Inversión (Mes)</div>
+                    <div class="kpi-value">S/ ${totalInversion.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                    <div class="kpi-subtitle">Solo órdenes confirmadas</div>
+                </div>
+            </div>
+        </div>`;
+
+    // KPI 3: Por Ingresar (Borradores)
+    html += `
+        <div class="col-md-4">
+            <div class="card-kpi kpi-yellow">
+                <div class="kpi-icon-wrapper"><i class="fa-regular fa-clock"></i></div>
+                <div>
+                    <div class="kpi-title">Por Ingresar</div>
+                    <div class="kpi-value">${pendientes}</div>
+                    <div class="kpi-subtitle">Borradores pendientes</div>
+                </div>
+            </div>
+        </div>`;
+
+    container.innerHTML = html;
+}
+
+function aplicarFiltrosCompras(resetPagina = false) {
+    if(resetPagina) currentPageComp = 1;
+    var texto = document.getElementById('buscador-compras').value.toLowerCase();
+    var prov = document.getElementById('filtro-prov').value;
+    
+    var filtrados = listaComprasCache.filter(c => {
+        var matchText = c.codigo_orden.toLowerCase().includes(texto) || (c.proveedores?.razon_social || '').toLowerCase().includes(texto);
+        var matchProv = prov ? (c.proveedores?.razon_social === prov) : true;
+        return matchText && matchProv;
+    });
+    
+    renderizarTablaPaginada(filtrados);
+}
+
+function renderizarTablaPaginada(datos) {
+    var tbody = document.getElementById('tabla-compras-body');
+    if(!tbody) return;
+
+    var totalItems = datos.length;
+    var totalPages = Math.ceil(totalItems / itemsPerPageComp);
+    var start = (currentPageComp - 1) * itemsPerPageComp;
+    var datosPagina = datos.slice(start, start + itemsPerPageComp);
+    
+    if(totalItems === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted fst-italic">Sin registros de compras.</td></tr>';
+        document.getElementById('paginacion-container-comp').innerHTML = '';
+        return;
+    }
+
+    let html = '';
+    const sesion = JSON.parse(localStorage.getItem('MTPC_Sesion') || '{}');
+    const esAdmin = sesion.rol === 'Administrador';
+
+    datosPagina.forEach(c => {
+        // Estilo de Pills de Estado (Igual a salud de stock)
+        let pillClass = c.estado === 'Confirmado' ? 'pill-health-good' : 'pill-health-warning';
+        let iconState = c.estado === 'Confirmado' ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-solid fa-clock"></i>';
+        
+        // Icono representativo del tipo de documento
+        let iconDoc = '<i class="fa-solid fa-file-invoice text-secondary"></i>';
+
+        html += `
+            <tr class="align-middle border-bottom animate__animated animate__fadeIn">
+                <td class="ps-4 py-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-3 bg-light border d-flex align-items-center justify-content-center" style="width:42px; height:42px;">
+                            ${iconDoc}
+                        </div>
+                        <div>
+                            <div class="fw-bold text-primary" style="font-size:0.9rem;">${c.codigo_orden}</div>
+                            <div class="small text-muted text-uppercase" style="font-size:0.65rem;">${c.tipo || 'Factura'}</div>
+                        </div>
+                    </div>
+                </td>
+                
+                <td class="text-muted small">${c.fecha_emision}</td>
+                
+                <td><div class="fw-bold text-dark text-truncate font-head" style="max-width: 180px;">${c.proveedores?.razon_social || '-'}</div></td>
+                
+                <td><span class="text-muted small">${c.cuentas_pago?.nombre || '-'}</span></td>
+                
+                <td class="text-center">
+                    <div class="stock-pill ${pillClass}" style="font-size:0.7rem; min-width: 95px;">
+                        ${iconState} ${c.estado}
+                    </div>
+                </td>
+                
+                <td class="text-end fw-bold text-dark">S/ ${parseFloat(c.total).toFixed(2)}</td>
+                
+                <td class="pe-4 text-end">
+                    <div class="d-flex justify-content-end gap-1">
+                        <button class="btn-std btn-icon-only btn-std-outline shadow-sm" onclick="imprimirOrden(${c.id})" title="Ver PDF">
+                            <i class="fa-solid fa-file-pdf"></i>
+                        </button>
+                        
+                        ${c.estado !== 'Confirmado' ? `
+                            <button class="btn-std btn-icon-only btn-std-outline text-success shadow-sm" onclick="confirmarOrden(${c.id}, '${c.codigo_orden}')" title="Ingresar Stock">
+                                <i class="fa-solid fa-check"></i>
+                            </button>` : ''}
+                        
+                        ${esAdmin ? `
+                            <button class="btn-std btn-icon-only btn-std-outline text-danger shadow-sm" onclick="eliminarOrden(${c.id}, '${c.codigo_orden}', '${c.estado}')" title="Eliminar">
+                                <i class="fa-regular fa-trash-can"></i>
+                            </button>` : ''}
+                    </div>
+                </td>
+            </tr>`;
+    });
+    tbody.innerHTML = html;
+    
+    // Paginación Estándar (Consistente con todo el sistema)
+    document.getElementById('info-paginacion-comp').innerHTML = `Mostrando <b>${start + 1}-${Math.min(start + itemsPerPageComp, totalItems)}</b> de <b>${totalItems}</b>`;
+    
+    let pagHtml = `<button class="page-btn ${currentPageComp===1?'disabled':''}" onclick="cambiarPaginaComp(${currentPageComp-1})"><i class="fa-solid fa-chevron-left"></i></button>`;
+    
+    for(let i=1; i<=totalPages; i++) {
+        if(i === 1 || i === totalPages || (i >= currentPageComp - 1 && i <= currentPageComp + 1)) {
+             pagHtml += `<button class="page-btn ${currentPageComp===i?'active':''}" onclick="cambiarPaginaComp(${i})">${i}</button>`;
+        }
+    }
+    
+    pagHtml += `<button class="page-btn ${currentPageComp===totalPages?'disabled':''}" onclick="cambiarPaginaComp(${currentPageComp+1})"><i class="fa-solid fa-chevron-right"></i></button>`;
+    document.getElementById('paginacion-container-comp').innerHTML = pagHtml;
+}
+
+function cambiarPaginaComp(p) { 
+    if(p>0) { currentPageComp = p; aplicarFiltrosCompras(false); } 
+}
+
+// ==========================================
+// 3. NUEVA ORDEN (LÓGICA CARRITO)
+// ==========================================
+function abrirOffcanvasCompra() {
+    var bsOffcanvas = new bootstrap.Offcanvas(document.getElementById('offcanvasCompra'));
+    bsOffcanvas.show(); 
+    
+    var p1 = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('productos', 'id, nombre, sku, precio_costo_promedio, stock_actual', '&activo=eq.true'));
+    var p2 = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('proveedores', 'id, razon_social'));
+    var p3 = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('cuentas_pago', 'id, nombre'));
+
+    Promise.all([p1, p2, p3]).then(res => {
+        listaProductosGlobal = res[0].datos || [];
+        listaFiltradaGlobal = [...listaProductosGlobal];
+        proveedoresCache = res[1].datos || [];
+        cuentasCache = res[2].datos || [];
+
+        currentPageCatalog = 1;
+        renderizarCatalogo(listaFiltradaGlobal);
+        llenarSelectsCompra();
+        carritoCompras = [];
+        document.getElementById('cart-fecha').value = new Date().toISOString().split('T')[0];
+        recalcularTotalCarrito();
+    });
+}
+
+function renderizarCatalogo(listaCompleta) {
+    // --- LÓGICA DE DATOS (INTACTA) ---
+    var totalItems = listaCompleta.length;
+    var totalPages = Math.ceil(totalItems / itemsPerPageCatalog) || 1;
+    if(currentPageCatalog > totalPages) currentPageCatalog = totalPages;
+    if(currentPageCatalog < 1) currentPageCatalog = 1;
+    
+    var start = (currentPageCatalog - 1) * itemsPerPageCatalog;
+    var datosPagina = listaCompleta.slice(start, start + itemsPerPageCatalog);
+    var grid = document.getElementById('grid-catalogo');
+    
+    let html = '';
+
+    // --- ÍTEM LIBRE (Estilo Dashed Amarillo) ---
+    if(currentPageCatalog === 1) {
+        html += `
+            <div class="card-std p-3 mb-3 border-warning bg-opacity-10 cursor-pointer hover-shadow" onclick="agregarItemLibre()" style="border: 2px dashed #fbbf24; background-color: #fffbeb;">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-warning text-white d-flex align-items-center justify-content-center shadow-sm" style="width:40px; height:40px;">
+                            <i class="fa-solid fa-pen-nib"></i>
+                        </div>
+                        <div>
+                            <h6 class="fw-bold m-0 font-head text-dark small">Ítem Libre / Gastos</h6>
+                            <small class="text-muted x-small">Concepto manual</small>
+                        </div>
+                    </div>
+                    <div class="btn-std btn-icon-only rounded-circle bg-warning text-white shadow-sm border-0">
+                        <i class="fa-solid fa-plus"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="h-px bg-border-color my-3 opacity-50"></div>`; // Separador sutil
+    }
+
+    // --- LISTA DE PRODUCTOS (Estilo Card Stitch) ---
+    datosPagina.forEach(p => { 
+        html += `
+            <div class="card-std p-3 mb-2 hover-bg cursor-pointer transition-all border shadow-sm" onclick="agregarAlCarrito(${p.id})">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-3 overflow-hidden">
+                        <div class="rounded-3 bg-light text-muted d-flex align-items-center justify-content-center border" style="width: 40px; height: 40px; min-width:40px;">
+                            <i class="fa-solid fa-box-open"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <h6 class="fw-bold m-0 text-dark text-truncate font-head small" title="${p.nombre}">${p.nombre}</h6>
+                            <small class="text-muted x-small">${p.sku}</small>
+                        </div>
+                    </div>
+                    <div class="text-end ms-2" style="min-width: 80px;">
+                        <div class="fw-bold text-dark small">S/ ${parseFloat(p.precio_costo_promedio).toFixed(2)}</div>
+                        <small class="text-primary fw-bold x-small">+ Agregar</small>
+                    </div>
+                </div>
+            </div>`; 
+    });
+    
+    grid.innerHTML = html;
+    
+    // --- LÓGICA DE PAGINACIÓN (INTACTA - Solo clases CSS) ---
+    document.getElementById('info-paginacion-cat').innerText = `${start + 1}-${Math.min(start + itemsPerPageCatalog, totalItems)} de ${totalItems}`;
+    
+    let pagHtml = `<li class="page-item ${currentPageCatalog===1?'disabled':''}"><button class="page-btn" onclick="cambiarPaginaCatalogo(${currentPageCatalog-1})"><i class="fa-solid fa-chevron-left"></i></button></li>`;
+    
+    let s = Math.max(1, currentPageCatalog - 1);
+    let e = Math.min(totalPages, s + 2);
+    if(e - s < 2) s = Math.max(1, e - 2);
+    
+    for(var i=s; i<=e; i++) {
+        if(i < 1) continue;
+        var active = i === currentPageCatalog ? 'active' : '';
+        // Aquí uso la clase page-btn en lugar de estilos inline raros
+        pagHtml += `<li class="page-item"><button class="page-btn ${active}" onclick="cambiarPaginaCatalogo(${i})">${i}</button></li>`;
+    }
+    
+    pagHtml += `<li class="page-item ${currentPageCatalog===totalPages?'disabled':''}"><button class="page-btn" onclick="cambiarPaginaCatalogo(${currentPageCatalog+1})"><i class="fa-solid fa-chevron-right"></i></button></li>`;
+    
+    document.getElementById('paginacion-catalogo-container').innerHTML = pagHtml;
+}
+
+function filtrarCatalogo(texto) { 
+    var t = texto.toLowerCase();
+    listaFiltradaGlobal = listaProductosGlobal.filter(p => p.nombre.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t)); 
+    currentPageCatalog = 1; 
+    renderizarCatalogo(listaFiltradaGlobal); 
+}
+
+function cambiarPaginaCatalogo(pag) { if(pag>0) { currentPageCatalog = pag; renderizarCatalogo(listaFiltradaGlobal); } }
+
+function llenarSelectsCompra() {
+    var selProv = document.getElementById('cart-prov'); 
+    var selCta = document.getElementById('cart-cuenta');
+    let htmlProv = '<option value="">Seleccione...</option>'; 
+    proveedoresCache.forEach(p => htmlProv += `<option value="${p.id}">${p.razon_social}</option>`); 
+    selProv.innerHTML = htmlProv;
+    
+    let htmlCta = ''; 
+    cuentasCache.forEach(c => htmlCta += `<option value="${c.id}">${c.nombre}</option>`); 
+    selCta.innerHTML = htmlCta;
+}
+
+function agregarAlCarrito(idProducto) {
+    var prod = listaProductosGlobal.find(p => p.id === idProducto);
+    var existe = carritoCompras.find(i => i.producto_id === idProducto);
+    if(existe) {
+        existe.cantidad++;
+        StitchFeedback.success("Cantidad +1");
+    } else {
+        carritoCompras.push({
+            producto_id: prod.id, descripcion: prod.nombre, sku: prod.sku,
+            cantidad: 1, precio: parseFloat(prod.precio_costo_promedio) || 0,
+            referencia: '', es_libre: false
+        });
+    }
+    renderizarCarrito();
+}
+
+function agregarItemLibre() {
+    carritoCompras.push({ producto_id: null, descripcion: 'Item Libre', cantidad: 1, precio: 0, referencia: '', es_libre: true });
+    renderizarCarrito();
+}
+
+function renderizarCarrito() {
+    var container = document.getElementById('cart-items-list');
+    document.getElementById('badge-items-count').innerText = carritoCompras.length;
+
+    if(carritoCompras.length === 0) {
+        container.innerHTML = '<div class="text-center py-5 opacity-50 small font-body border border-dashed rounded-3 bg-white mt-3">El carrito está vacío</div>';
+        recalcularTotalCarrito();
+        return;
+    }
+
+    let html = '';
+    carritoCompras.forEach((item, idx) => {
+        // CORRECCIÓN: Usamos item.precio (con 'o') y aseguramos número
+        let precioNum = parseFloat(item.precio) || 0;
+        let subtotalCalculado = (item.cantidad * precioNum).toFixed(2);
+        
+        let titleBlock = item.es_libre 
+            ? `<div class="md3-input-wrapper mb-2">
+                <div class="md3-input-group">
+                    <i class="fas fa-font text-primary me-2"></i>
+                    <input type="text" class="md3-input-field fw-bold" value="${item.descripcion}" 
+                           oninput="actualizarDatoMemoria(${idx}, 'descripcion', this.value)">
+                </div>
+                <label class="md3-label">Descripción del ítem</label>
+               </div>`
+            : `<h6 class="fw-bold text-dark text-truncate m-0 font-head" style="font-size:0.85rem;">${item.descripcion}</h6>
+               <small class="text-muted font-monospace x-small">SKU: ${item.sku}</small>`;
+
+        html += `
+            <div class="card-std p-3 bg-white border shadow-sm position-relative animate__animated animate__fadeInRight">
+                <button class="btn btn-sm text-danger position-absolute top-0 end-0 mt-1 me-1 opacity-50 hover-opacity-100 p-1" onclick="eliminarDelCarrito(${idx})">
+                    <i class="fa-solid fa-xmark fs-6"></i>
+                </button>
+                <div class="pe-4 mb-3">${titleBlock}</div>
+                <div class="d-flex align-items-end justify-content-between gap-2">
+                    <div class="d-flex gap-2 align-items-center">
+                        <div class="d-flex align-items-center bg-light border rounded-2 overflow-hidden" style="height: 36px;">
+                            <button class="btn btn-sm px-2 border-0 hover-bg-gray h-100 text-muted" onclick="cambiarCant(${idx}, -1)"><i class="fa-solid fa-minus x-small"></i></button>
+                            <input type="text" class="form-control-plaintext text-center fw-bold p-0 bg-transparent" style="width: 30px; font-size: 0.85rem;" value="${item.cantidad}" readonly>
+                            <button class="btn btn-sm px-2 border-0 hover-bg-gray h-100 text-primary" onclick="cambiarCant(${idx}, 1)"><i class="fa-solid fa-plus x-small"></i></button>
+                        </div>
+                        <div class="d-flex align-items-center border rounded-2 overflow-hidden px-2 bg-white" style="height: 36px; width: 110px;">
+                            <i class="fas fa-sack-dollar text-muted x-small me-1"></i>
+                            <input type="number" class="form-control border-0 fw-bold p-0 text-end text-dark" style="font-size: 0.85rem;" value="${item.precio}" oninput="actualizarPrecioSilencioso(${idx}, this.value)">
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <small class="text-muted d-block x-small uppercase fw-bold" style="font-size:0.6rem;">Subtotal</small>
+                        <span class="fw-bold text-primary font-monospace" id="sub-item-${idx}" style="font-size:1rem;">S/ ${subtotalCalculado}</span>
+                    </div>
+                </div>
+                <input type="text" class="form-control form-control-sm mt-3 border-0 bg-light small" style="font-size:0.7rem;" placeholder="Referencia / Serie..." value="${item.referencia || ''}" oninput="actualizarDatoMemoria(${idx}, 'referencia', this.value)">
+            </div>`;
+    });
+    container.innerHTML = html;
+    recalcularTotalCarrito();
+}
+
+
+function actualizarPrecioSilencioso(idx, valor) {
+    let num = parseFloat(valor) || 0;
+    carritoCompras[idx].precio = num; // CORRECCIÓN: propiedad unificada
+    
+    let nuevoSub = (carritoCompras[idx].cantidad * num).toFixed(2);
+    let label = document.getElementById(`sub-item-${idx}`);
+    if(label) label.innerText = `S/ ${nuevoSub}`;
+    
+    recalcularTotalCarrito();
+}
+
+function actualizarDatoMemoria(idx, campo, valor) {
+    if(campo === 'descripcion') carritoCompras[idx].descripcion = valor;
+    else if(campo === 'referencia') carritoCompras[idx].referencia = valor;
+}
+
+function cambiarCant(idx, delta) {
+    var nuevo = carritoCompras[idx].cantidad + delta;
+    if(nuevo > 0) { carritoCompras[idx].cantidad = nuevo; renderizarCarrito(); }
+}
+
+function eliminarDelCarrito(idx) { carritoCompras.splice(idx, 1); renderizarCarrito(); }
+
+function recalcularTotalCarrito() {
+    var totalBruto = carritoCompras.reduce((sum, item) => sum + (item.cantidad * item.precio), 0);
+    var tipoDoc = document.getElementById('cart-doc').value;
+    var subtotal = (tipoDoc === 'Factura') ? totalBruto / 1.18 : totalBruto;
+    var igv = totalBruto - subtotal;
+
+    document.getElementById('lbl-subtotal').innerText = subtotal.toFixed(2);
+    document.getElementById('lbl-igv').innerText = igv.toFixed(2);
+    document.getElementById('lbl-total').innerText = totalBruto.toFixed(2);
+}
+
+function guardarOrdenCompra() {
+    var sesion = JSON.parse(localStorage.getItem('MTPC_Sesion') || '{}');
+    if (!sesion.id) return StitchFeedback.error('Sesión inválida. Reingrese.');
+    
+    var prov = document.getElementById('cart-prov').value;
+    var cta = document.getElementById('cart-cuenta').value;
+    if (!prov || !cta) return StitchFeedback.error('Seleccione Proveedor y Cuenta');
+    if (carritoCompras.length === 0) return StitchFeedback.error('Carrito vacío');
+
+    var total = parseFloat(document.getElementById('lbl-total').innerText);
+    var subtotal = parseFloat(document.getElementById('lbl-subtotal').innerText);
+    var igv = parseFloat(document.getElementById('lbl-igv').innerText);
+
+    var cabecera = {
+        proveedor_id: parseInt(prov),
+        cuenta_pago_id: parseInt(cta),
+        fecha_emision: document.getElementById('cart-fecha').value || new Date().toISOString().split('T')[0],
+        estado: document.getElementById('cart-estado').value,
+        tipo: document.getElementById('cart-doc').value,
+        total: total, subtotal: subtotal, igv_monto: igv,
+        generado_por: sesion.nombre,
+        usuario_id: sesion.id
+    };
+
+    var detalles = carritoCompras.map(i => ({
+        producto_id: i.producto_id,
+        descripcion: i.descripcion,
+        cantidad: i.cantidad,
+        precio_unitario: i.precio,
+        referencia: i.referencia || '',
+        total_linea: (i.cantidad * i.precio)
+    }));
+
+    MTPC_Toast.loading('Registrando orden...');
+    
+    google.script.run.withSuccessHandler(res => {
+        if (res.exito) {
+            MTPC_Toast.success('Orden registrada'); 
+            bootstrap.Offcanvas.getInstance(document.getElementById('offcanvasCompra')).hide();
+            
+            // DIÁLOGO DE ÉXITO ESTILO PREMIUM (Tu mockup)
+            Swal.fire({
+                title: '¡Orden Generada!',
+                html: `<div class="py-2">La orden <b class="text-primary">#${res.codigo}</b> se guardó correctamente.</div><p class="text-muted small">¿Deseas descargar el documento PDF ahora?</p>`,
+                icon: 'success',
+                iconColor: '#22c55e',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fa-solid fa-file-pdf me-2"></i> Descargar PDF',
+                cancelButtonText: 'Cerrar',
+                buttonsStyling: false,
+                customClass: {
+                    popup: 'mtpc-swal-popup',
+                    title: 'mtpc-swal-title',
+                    htmlContainer: 'mtpc-swal-html',
+                    confirmButton: 'btn btn-success mtpc-swal-confirm mx-2', 
+                    cancelButton: 'btn btn-light mtpc-swal-cancel mx-2'
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    imprimirOrden(res.id); // Llamada directa con el ID retornado
+                }
+            });
+
+            cargarDatosCompras(); 
+        } else {
+            MTPC_Toast.error("Error: " + res.error);
+        }
+    }).registrarCompraCompleta(cabecera, detalles);
+}
+
+function confirmarOrden(id, codigo) {
+    Swal.fire({
+        title: 'Ingresar Stock', text: `¿Confirmar ingreso de la orden ${codigo}?`, icon: 'question',
+        showCancelButton: true, confirmButtonColor: '#198754', confirmButtonText: 'Sí, Ingresar'
+    }).then(r => {
+        if(r.isConfirmed) {
+            MTPC_Toast.loading('Procesando ingreso de stock...');
+            google.script.run.withSuccessHandler(res => {
+                if(res.exito) { MTPC_Toast.success('Stock actualizado'); cargarDatosCompras(); }
+                else MTPC_Toast.error(res.error);
+            }).confirmarOrdenExistente(id);
+        }
+    });
+}
+
+function eliminarOrden(id, codigo, estado) {
+    // 1. Preparamos el mensaje según el estado
+    let msg = estado === 'Confirmado' 
+        ? `¿Estás seguro de eliminar la orden <b class="text-dark">${codigo}</b>?<br><small class="text-danger">Se restará el stock ingresado del inventario.</small>` 
+        : `¿Deseas eliminar el borrador de la orden <b class="text-dark">${codigo}</b>?`;
+
+    // 2. Lanzamos el Swal con los nuevos estilos
+    Swal.fire({
+        title: '¿Eliminar Orden?',
+        html: msg,
+        icon: 'warning',
+        iconColor: '#ef4444',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, Eliminar',
+        cancelButtonText: 'Cancelar',
+        buttonsStyling: false, // Importante para usar nuestro CSS
+        customClass: {
+            popup: 'mtpc-swal-popup',
+            title: 'mtpc-swal-title',
+            confirmButton: 'mtpc-swal-confirm btn btn-danger mx-2',
+            cancelButton: 'mtpc-swal-cancel btn btn-light mx-2'
+        },
+        reverseButtons: true
+    }).then(r => {
+        if(r.isConfirmed) {
+            // Feedback con la cápsula inferior (Tu estándar MTPC_Toast)
+            MTPC_Toast.loading('Eliminando orden...');
+            
+            google.script.run.withSuccessHandler(res => {
+                if(res.exito) { 
+                    MTPC_Toast.success('Orden eliminada correctamente'); 
+                    cargarDatosCompras(); // Refresca la tabla
+                } else {
+                    MTPC_Toast.error("No se pudo eliminar: " + res.error);
+                }
+            }).eliminarCompra(id);
+        }
+    });
+}
+
+// ==========================================
+// 4. ANÁLISIS DE PRECIOS
+// ==========================================
+// --- FUNCIONES DE INTELIGENCIA DE PRECIOS ---
+
+function abrirOffcanvasAnalisis(preselectId = null) {
+    new bootstrap.Offcanvas(document.getElementById('offcanvasAnalisis')).show();
+    
+    // Poblamos el datalist (Mucho más rápido que un select para 1000+ items)
+    const datalist = document.getElementById('lista-productos-analisis');
+    datalist.innerHTML = '';
+    
+    // Usamos los productos ya cargados en memoria o los pedimos
+    google.script.run.withSuccessHandler(res => {
+        let html = '';
+        if(res.datos) {
+            res.datos.forEach(p => {
+                // El value es el nombre, el data-id es el ID real
+                html += `<option data-id="${p.id}" value="${p.nombre} (SKU: ${p.sku})"></option>`;
+            });
+        }
+        datalist.innerHTML = html;
+
+        // Si venimos de un producto específico (ej. desde el carrito)
+        if(preselectId) {
+            let prod = res.datos.find(p => p.id == preselectId);
+            if(prod) {
+                document.getElementById('analisis-prod-search').value = `${prod.nombre} (SKU: ${prod.sku})`;
+                ejecutarAnalisis(preselectId);
+            }
+        }
+    }).dbSelect('productos', 'id, nombre, sku', '&activo=eq.true&order=nombre.asc');
+}
+
+// Función intermedia para obtener el ID desde el datalist
+function validarYEjecutarAnalisis(valor) {
+    const option = document.querySelector(`#lista-productos-analisis option[value="${valor}"]`);
+    if (option) {
+        const prodId = option.getAttribute('data-id');
+        ejecutarAnalisis(prodId);
+    }
+}
+
+function ejecutarAnalisis(prodId) {
+    if(!prodId) return;
+    var content = document.getElementById('analisis-content');
+    content.innerHTML = '<div class="text-center py-5"><div class="stitch-spinner mx-auto"></div><p class="mt-2 small text-muted">Consultando historial de costos...</p></div>';
+
+    google.script.run.withSuccessHandler(res => {
+        if(!res.exito || !res.datos || res.datos.length === 0) {
+            content.innerHTML = '<div class="card-std p-5 text-center text-muted border-dashed"><i class="fa-solid fa-folder-open fa-2x mb-3"></i><p>Este producto no tiene compras registradas.</p></div>';
+            return;
+        }
+
+        // 1. Procesar Datos
+        var historial = res.datos.map(d => ({
+            fecha: d.compras.fecha_emision,
+            precio: parseFloat(d.precio_unitario),
+            prov: d.compras.proveedores ? d.compras.proveedores.razon_social : 'Desconocido',
+            orden: d.compras.codigo_orden
+        })).sort((a,b) => new Date(a.fecha) - new Date(b.fecha));
+
+        var precios = historial.map(h => h.precio);
+        var precioActual = precios[precios.length - 1];
+        var precioMinimo = Math.min(...precios);
+        var precioPromedio = precios.reduce((a, b) => a + b, 0) / precios.length;
+
+        // 2. Renderizar HTML (KPIs y Tabla)
+        // ... (Este bloque es el mismo que el anterior, lo mantengo para que sea funcional al pegar) ...
+        let html = `
+            <div class="row g-2 mb-4">
+              <div class="col-4">
+                  <div class="kpi-card-mini kpi-blue-mini shadow-sm">
+                      <div class="d-flex align-items-center">
+                          <div class="kpi-icon-mini">
+                              <i class="fa-solid fa-tag"></i>
+                          </div>
+                          <div class="ms-2">
+                              <div class="kpi-title-mini">Último Costo</div>
+                              <div class="kpi-value-mini text-dark">S/ ${precioActual.toFixed(2)}</div>
+                          </div>
+                      </div>
+                      <div class="kpi-footer-mini text-muted">Última transac.</div>
+                  </div>
+              </div>
+
+              <div class="col-4">
+                  <div class="kpi-card-mini kpi-yellow-mini shadow-sm">
+                      <div class="d-flex align-items-center">
+                          <div class="kpi-icon-mini">
+                              <i class="fa-solid fa-calculator"></i>
+                          </div>
+                          <div class="ms-2">
+                              <div class="kpi-title-mini">Promedio</div>
+                              <div class="kpi-value-mini text-dark">S/ ${precioPromedio.toFixed(2)}</div>
+                          </div>
+                      </div>
+                      <div class="kpi-footer-mini text-muted">Media histórica</div>
+                  </div>
+              </div>
+
+              <div class="col-4">
+                  <div class="kpi-card-mini kpi-green-mini shadow-sm">
+                      <div class="d-flex align-items-center">
+                          <div class="kpi-icon-mini">
+                              <i class="fa-solid fa-trophy"></i>
+                          </div>
+                          <div class="ms-2">
+                              <div class="kpi-title-mini">Mejor Precio</div>
+                              <div class="kpi-value-mini text-success">S/ ${precioMinimo.toFixed(2)}</div>
+                          </div>
+                      </div>
+                      <div class="kpi-footer-mini text-muted">Récord bajo</div>
+                  </div>
+              </div>
+          </div>
+            <div class="card-std p-4 mb-4 bg-white border-0 shadow-sm">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h6 class="fw-bold m-0 font-head"><i class="fa-solid fa-chart-area me-2 text-primary"></i>Tendencia de Precios</h6>
+                    <span class="badge bg-primary bg-opacity-10 text-primary border-0 px-3">Interactiva</span>
+                </div>
+                <div style="height: 250px;"><canvas id="chartAnalisis"></canvas></div>
+            </div>
+            <div class="table-std-wrapper shadow-sm border-0 bg-white">
+                <table class="table-std">
+                    <thead><tr><th>FECHA</th><th>PROVEEDOR</th><th>ORDEN</th><th class="text-center">VAR.</th><th class="text-end">COSTO UNIT.</th></tr></thead>
+                    <tbody>`;
+
+        var historialInvertido = [...historial].reverse();
+        historialInvertido.forEach((h, idx) => {
+            let diffIcon = '<span class="text-muted small">-</span>';
+            if (idx < historialInvertido.length - 1) {
+                let ant = historialInvertido[idx + 1].precio;
+                if (h.precio > ant) diffIcon = '<i class="fa-solid fa-caret-up text-danger"></i>';
+                else if (h.precio < ant) diffIcon = '<i class="fa-solid fa-caret-down text-success"></i>';
+            }
+            html += `<tr><td class="small fw-bold">${DateUtils.toUserDate(h.fecha)}</td><td><div class="d-flex align-items-center gap-2"><div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width:24px; height:24px; font-size:10px; font-weight:bold;">${h.prov.charAt(0)}</div><span class="text-truncate font-head fw-bold" style="max-width: 180px;">${h.prov}</span></div></td><td><span class="badge bg-light text-secondary border fw-normal">${h.orden}</span></td><td class="text-center">${diffIcon}</td><td class="text-end fw-bold text-dark">S/ ${h.precio.toFixed(2)}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+        content.innerHTML = html;
+
+        // 3. INICIALIZACIÓN DEL GRÁFICO (Chart.js con Tooltip mejorado)
+        if(chartInstance) chartInstance.destroy();
+        var ctx = document.getElementById('chartAnalisis').getContext('2d');
+        var grad = ctx.createLinearGradient(0, 0, 0, 250);
+        grad.addColorStop(0, 'rgba(19, 127, 236, 0.2)');
+        grad.addColorStop(1, 'rgba(19, 127, 236, 0)');
+
+        chartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: historial.map(h => DateUtils.toUserDate(h.fecha).split('/')[0] + '/' + DateUtils.toUserDate(h.fecha).split('/')[1]),
+                datasets: [{
+                    label: 'Costo Unitario',
+                    data: historial.map(h => h.precio),
+                    borderColor: '#137fec',
+                    backgroundColor: grad,
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 6,
+                    pointHoverRadius: 8,
+                    pointBackgroundColor: '#fff',
+                    pointBorderWidth: 3,
+                    borderWidth: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#0f172a',
+                        titleFont: { family: 'Montserrat', size: 13, weight: 'bold' },
+                        bodyFont: { family: 'Poppins', size: 12 },
+                        padding: 12,
+                        cornerRadius: 10,
+                        displayColors: false,
+                        callbacks: {
+                            // Cambiamos el texto del tooltip
+                            label: function(context) {
+                                return ' Precio: S/ ' + context.parsed.y.toFixed(2);
+                            },
+                            // AÑADIMOS EL PROVEEDOR AQUÍ
+                            afterLabel: function(context) {
+                                let item = historial[context.dataIndex];
+                                return ' Proveedor: ' + item.prov;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: { 
+                        grid: { borderDash: [5, 5], color: '#e2e8f0', drawBorder: false }, 
+                        ticks: { 
+                            font: { size: 11, family: 'Poppins' },
+                            callback: value => 'S/ ' + value.toFixed(0)
+                        } 
+                    },
+                    x: { 
+                        grid: { display: false }, 
+                        ticks: { font: { size: 11, family: 'Poppins' } } 
+                    }
+                }
+            }
+        });
+
+    }).dbSelect('detalles_compra', 'precio_unitario, compras(codigo_orden, fecha_emision, proveedores(razon_social))', '&producto_id=eq.' + prodId + '&order=id.asc');
+}
+
+// ==========================================
+// 5. GENERACIÓN PDF (DISEÑO EXACTO)
+// ==========================================
+function imprimirOrden(compraId) {
+  if (!compraId) return MTPC_Toast.error("ID de orden no recibido");
+    MTPC_Toast.loading('Generando documento PDF...');
+    
+    var p1 = new Promise(function(r) { google.script.run.withSuccessHandler(function(res) { r(res) }).dbSelect('compras', '*, proveedores(*), cuentas_pago(*)', '&id=eq.' + compraId) });
+    var p2 = new Promise(function(r) { google.script.run.withSuccessHandler(function(res) { r(res) }).dbSelect('detalles_compra', '*', '&compra_id=eq.' + compraId) });
+
+    Promise.all([p1, p2]).then(function(values) {
+      if (!values[0] || !values[0].datos || values[0].datos.length === 0) {
+            throw new Error("No se encontraron los datos de la orden.");
+        }
+        var cabecera = values[0].datos[0];
+        var detalles = values[1].datos;
+        
+        if(!cabecera) return StitchFeedback.error('Error de datos');
+
+        // Datos Proveedor
+        var provRazon = cabecera.proveedores && cabecera.proveedores.razon_social ? cabecera.proveedores.razon_social : 'Proveedor Genérico';
+        var provRuc = cabecera.proveedores && cabecera.proveedores.ruc ? cabecera.proveedores.ruc : '---';
+        var provDir = cabecera.proveedores && cabecera.proveedores.direccion ? cabecera.proveedores.direccion : 'Dirección no registrada';
+        var provVendedor = cabecera.proveedores && cabecera.proveedores.contacto_nombre ? cabecera.proveedores.contacto_nombre : 'Ventas';
+        var provTel = cabecera.proveedores && cabecera.proveedores.telefono ? cabecera.proveedores.telefono : '---';
+        var provCuenta = cabecera.proveedores && cabecera.proveedores.cuenta_bancaria ? cabecera.proveedores.cuenta_bancaria : '---'; 
+        
+        // Información Interna
+        var generadoPor = cabecera.generado_por || 'Sistema';
+        var estadoOrden = cabecera.estado || 'Borrador';
+        var cuentaPago = cabecera.cuentas_pago && cabecera.cuentas_pago.nombre ? cabecera.cuentas_pago.nombre : '---'; 
+        var tipoDoc = cabecera.tipo || 'Factura'; 
+
+        // Fechas y Totales
+        var fecha = cabecera.fecha_emision;
+        try { fecha = new Date(fecha+'T00:00:00').toLocaleDateString(); } catch(e){}
+
+        var subtotal = parseFloat(cabecera.subtotal || 0).toFixed(2);
+        var igv = parseFloat(cabecera.igv_monto || 0).toFixed(2);
+        var total = parseFloat(cabecera.total || 0).toFixed(2);
+
+        // ==========================================
+        // ÁREA DE LOGO (PEGAR AQUÍ TU CÓDIGO)
+        // ==========================================
+        var logoBase64 = `data:image/png;base64,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`; // <-- PEGA TU CADENA BASE64 GIGANTE DENTRO DE LAS COMILLAS
+        
+        var logoImg = logoBase64 ? '<img src="' + logoBase64 + '" style="max-width: 250px; display: block;">' : '<div style="padding:10px; font-size:10px; font-weight:bold;">MTPC LOGÍSTICA</div>';
+
+
+        // --- GENERACIÓN DE FILAS ---
+        var filasItems = detalles.map(function(item, i) {
+            return '<tr style="border-bottom: 0px solid #e2e8f0;">' +
+                '<td style="padding: 10px; color: #334155; font-weight: 600; text-align: left;">' + (item.referencia || '---') + '</td>' +
+                '<td style="padding: 10px; color: #0f172a; font-weight: 600;">' +
+                    item.descripcion +
+                '</td>' +
+                '<td style="padding: 10px; text-align: center; color: #334155;">' + item.cantidad + '</td>' +
+                '<td style="padding: 10px; text-align: right; color: #334155;">S/ ' + parseFloat(item.precio_unitario).toFixed(2) + '</td>' +
+                '<td style="padding: 10px; text-align: right; color: #0f172a; font-weight: 700;">S/ ' + parseFloat(item.total_linea).toFixed(2) + '</td>' +
+            '</tr>';
+        }).join('');
+
+        // --- CREACIÓN DEL DOM ---
+        var elemento = document.createElement('div');
+        elemento.id = 'pdf-container';
+        
+        // PLANTILLA A4 EXACTA (CSS INLINE)
+        elemento.innerHTML = 
+            '<div style="width: 100%; font-family: \'Montserrat\', sans-serif; color: #FFFFFF; line-height: 1.4;">' +
+                
+                '<table style="width: 100%; margin-bottom: 30px; border:0; padding-bottom: 20px;border-collapse:collapse;"cellpading="0" cellspacing="0">' +
+                    '<tr>' +
+                        '<td style="vertical-align: top;">' + // Se añadió padding-top
+                            logoImg +
+                            '<div style="font-size: 11px; font-weight: 700; color: #00295b; margin-top: 10px;">RUC: 20606368293</div>' +
+                        '</td>' +
+                        '<td style="text-align: right; vertical-align: top;">' +
+                            '<h1 style="font-size: 24px; font-weight: 800; color: #00295b; margin: 0; text-transform: uppercase;">Orden de Compra</h1>' +
+                            '<div style="font-size: 16px; font-weight: 600; color: #334155; margin-top: 5px;">N° ' + cabecera.codigo_orden + '</div>' +
+                            '<div style="font-size: 14px; color: #64748b;">Fecha: ' + fecha + '</div>' +
+                        '</td>' +
+                    '</tr>' +
+                '</table>' +
+
+                '' +
+                '<table style="width: 100%; margin-bottom: 30px; border-spacing: 0;">' +
+                    '<tr>' +
+                        '' +
+                        '<td style="width: 48%; vertical-align: top; padding-right: 2%;">' +
+                            // Nuevo estilo: fondo azul, letras blancas
+                            '<div style="background-color: #00295b; color: #ffffff; padding: 5px 10px; margin-bottom: 8px;">' +
+                                '<span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Proveedor</span>' +
+                            '</div>' +
+                            '<div style="font-size: 11px; color: #334155; padding-left: 10px;">' +
+                                '<div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">' + provRazon + '</div>' +
+                                '<div style="margin-bottom: 2px;"><span style="font-weight: 600;">RUC:</span> ' + provRuc + '</div>' +
+                                '<div style="margin-bottom: 2px;"><span style="font-weight: 600;">Dirección:</span> ' + provDir + '</div>' +
+                                '<div style="margin-bottom: 2px;"><span style="font-weight: 600;">Vendedor:</span> ' + provVendedor + '</div>' +
+                                '<div style="margin-bottom: 2px;"><span style="font-weight: 600;">Teléfono:</span> ' + provTel + '</div>' +
+                                '<div><span style="font-weight: 600;">Cta. Pago:</span> ' + provCuenta + '</div>' +
+                            '</div>' +
+                        '</td>' +
+
+                        '' +
+                        '<td style="width: 48%; vertical-align: top; padding-left: 2%;">' +
+                            // Nuevo estilo: fondo azul, letras blancas
+                            '<div style="background-color: #00295b; color: #ffffff; padding: 5px 10px; margin-bottom: 8px;">' +
+                                '<span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Información Interna</span>' +
+                            '</div>' +
+                            '<div style="font-size: 11px; color: #334155; padding-left: 10px;">' +
+                                '<table style="width: 100%;">' +
+                                    '<tr>' +
+                                        '<td style="padding-bottom: 4px; font-weight: 600;">Generado por:</td>' +
+                                        '<td style="padding-bottom: 4px; text-align: right;">' + generadoPor + '</td>' +
+                                    '</tr>' +
+                                    '<tr>' +
+                                        '<td style="padding-bottom: 4px; font-weight: 600;">Estado:</td>' +
+                                        '<td style="padding-bottom: 4px; text-align: right;">' + estadoOrden + '</td>' +
+                                    '</tr>' +
+                                    '<tr>' +
+                                        '<td style="padding-bottom: 4px; font-weight: 600;">Cuenta/RUC:</td>' +
+                                        '<td style="padding-bottom: 4px; text-align: right;">' + cuentaPago + '</td>' +
+                                    '</tr>' +
+                                    '<tr>' +
+                                        '<td style="font-weight: 600;">Tipo:</td>' +
+                                        '<td style="text-align: right;">' + tipoDoc + '</td>' +
+                                    '</tr>' +
+                                '</table>' +
+                            '</div>' +
+                        '</td>' +
+                    '</tr>' +
+                '</table>' +
+
+                '' +
+                '<table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 30px;">' +
+                    '<thead>' +
+                        // Nuevo estilo: fila de cabecera con fondo azul y letras blancas
+                        '<tr style="background-color: #00295b; color: #ffffff;">' +
+                            '<th style="padding: 8px 10px; text-align: left; font-weight: 700; border: 1px solid #e2e8f0; width: 80px;">REF / OS</th>' +
+                            '<th style="padding: 8px 10px; text-align: left; font-weight: 700; border: 1px solid #e2e8f0;">Descripción</th>' +
+                            '<th style="padding: 8px 10px; text-align: center; font-weight: 700; border: 1px solid #e2e8f0; width: 60px;">Cant.</th>' +
+                            '<th style="padding: 8px 10px; text-align: right; font-weight: 700; border: 1px solid #e2e8f0; width: 90px;">P. Unit</th>' +
+                            '<th style="padding: 8px 10px; text-align: right; font-weight: 700; border: 1px solid #e2e8f0; width: 90px;">Total</th>' +
+                        '</tr>' +
+                    '</thead>' +
+                    '<tbody>' +
+                        filasItems +
+                    '</tbody>' +
+                '</table>' +
+
+                '' +
+                '<table style="width: 100%; margin-bottom: 40px;">' +
+                    '<tr>' +
+                        '' +
+                        '<td style="width: 60%; vertical-align: bottom; padding-right: 40px;">' +
+                            '<div style="text-align: center; width: 220px; margin-left: 20px;">' +
+                                '<div style="height: 60px;"></div> ' +
+                                '<div style="border-top: 1px solid #0f172a; padding-top: 5px;">' +
+                                    '<div style="font-size: 12px; font-weight: 700; color: #0f172a;">Ricardo Medrano</div>' +
+                                    '<div style="font-size: 10px; color: #64748b; text-transform: uppercase;">Autorizado / Pagos</div>' +
+                                '</div>' +
+                            '</div>' +
+                        '</td>' +
+
+                        '' +
+                        '<td style="width: 40%; vertical-align: top;">' +
+                            '<div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">' + // Added overflow:hidden for rounded corners on blue row
+                                '<table style="width: 100%; font-size: 11px; border-collapse: collapse;">' +
+                                    '<tr>' +
+                                        '<td style="padding: 10px; color: #475569;">Subtotal</td>' +
+                                        '<td style="padding: 10px; text-align: right; font-weight: 600; color: #334155;">S/ ' + subtotal + '</td>' +
+                                    '</tr>' +
+                                    '<tr>' +
+                                        '<td style="padding: 10px; color: #475569;">IGV (18%)</td>' +
+                                        '<td style="padding: 10px; text-align: right; font-weight: 600; color: #334155;">S/ ' + igv + '</td>' +
+                                    '</tr>' +
+                                    // Nuevo estilo: fila de TOTAL GENERAL con fondo azul y letras blancas
+                                    '<tr style="background-color: #00295b; color: #ffffff;">' +
+                                        '<td style="padding: 12px 10px; font-size: 13px; font-weight: 700;">TOTAL GENERAL</td>' +
+                                        '<td style="padding: 12px 10px; font-size: 16px; font-weight: 800; text-align: right;">S/ ' + total + '</td>' +
+                                    '</tr>' +
+                                '</table>' +
+                            '</div>' +
+                        '</td>' +
+                    '</tr>' +
+                '</table>' +
+
+                '' +
+                '<div style="border-top: 1px solid #e2e8f0; padding-top: 10px; font-size: 9px; color: #64748b; text-align: center;">' +
+                    'Jr. San Martín #565 - Magdalena / Telf.: (01) 263-7621 / Cel.: 999 440 664 / informes@mitecnicopc.com' +
+                '</div>' +
+            '</div>';
+
+        // 1. Sanitizar el nombre del proveedor para evitar errores en el nombre del archivo
+        // Quitamos caracteres especiales que Windows o Mac no permiten en nombres de archivos
+        var nombreProveedorLimpio = provRazon.replace(/[^a-zA-Z0-9 áéíóúÁÉÍÓÚñÑ.-]/g, '');
+        
+        // 2. Definir la estructura: [CÓDIGO] - [PROVEEDOR].pdf
+        var nombreFinalArchivo = cabecera.codigo_orden + ' - ' + nombreProveedorLimpio + '.pdf';
+
+        // 3. Configuración de guardado con el nombre corregido
+        const opt = {
+            margin: 10,
+            filename: nombreFinalArchivo, // <--- Nombre estructurado
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { 
+                scale: 2, 
+                useCORS: true, 
+                letterRendering: true 
+            },
+            jsPDF: { 
+                unit: 'mm', 
+                format: 'a4', 
+                orientation: 'portrait' 
+            }
+        };
+
+        html2pdf().set(opt).from(elemento).save().then(() => {
+            MTPC_Toast.success('Descarga Iniciada');
+        });
+
+    }).catch(err => {
+        console.error(err);
+        MTPC_Toast.error("Error al generar PDF: " + err.message);
+    });
+}
+
+function cambiarEstadoSwitch(checkbox) {
+    var inputHidden = document.getElementById('cart-estado');
+    var lblBorrador = document.getElementById('lbl-borrador');
+    var lblConfirmado = document.getElementById('lbl-confirmado');
+
+    if (checkbox.checked) {
+        // Estado: CONFIRMADO
+        inputHidden.value = 'Confirmado';
+        
+        // Estilos visuales
+        lblBorrador.classList.replace('text-on', 'text-off'); // Apagar borrador
+        lblConfirmado.classList.replace('text-off', 'text-on'); // Encender confirmado
+    } else {
+        // Estado: BORRADOR
+        inputHidden.value = 'Borrador';
+        
+        // Estilos visuales
+        lblBorrador.classList.replace('text-off', 'text-on'); // Encender borrador (opcional, o dejar gris)
+        lblConfirmado.classList.replace('text-on', 'text-off'); // Apagar confirmado
+    }
+}
+</script>

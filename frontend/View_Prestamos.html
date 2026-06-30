@@ -1,0 +1,76 @@
+<div class="container-fluid-stitch animate__animated animate__fadeIn">
+    
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h2 class="fw-bold m-0" style="color: var(--primary); font-family: var(--font-head);">Control de Custodia</h2>
+            <p class="text-muted m-0 small font-body">Equipos y herramientas asignados al personal técnico</p>
+        </div>
+        <div class="d-flex gap-3">
+            <button class="btn-std btn-std-outline shadow-sm" onclick="abrirHistorialPrestamos()">
+                <i class="fa-solid fa-clock-rotate-left text-secondary"></i> Historial
+            </button>
+            <button class="btn-std btn-std-primary shadow-sm" onclick="abrirOffcanvasNuevoPrestamo()">
+                <i class="fa-solid fa-plus"></i> Nuevo Préstamo
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4" id="metrics-custodia">
+        <div class="col-12 text-center py-3"><div class="stitch-spinner mx-auto"></div></div>
+    </div>
+
+    <div class="toolbar-std mb-4 d-flex align-items-center justify-content-between bg-white p-2 rounded-pill shadow-sm border">
+        <div class="trends-filter-wrapper">
+            <button class="btn-segment active" id="filter-todos" onclick="aplicarFiltroCustodia('TODOS', this)">Todos</button>
+            <button class="btn-segment" id="filter-vencidos" onclick="aplicarFiltroCustodia('VENCIDO', this)">
+                <i class="fa-solid fa-circle text-danger me-2" style="font-size: 6px;"></i> Vencidos
+            </button>
+            <button class="btn-segment" id="filter-proximos" onclick="aplicarFiltroCustodia('HOY', this)">Próximos</button>
+        </div>
+
+        <div style="min-width: 350px;" class="pe-2">
+            <div class="input-std-wrapper">
+                <i class="fa-solid fa-search input-std-icon"></i>
+                <input type="text" id="buscador-custodia" class="input-std" 
+                       placeholder="Buscar técnico, equipo o serie..." onkeyup="filtrarCustodiaCards()">
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4" id="grid-custodia-body">
+        </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasPrestamo" style="width: 500px;">
+    <div class="offcanvas-header-std bg-white border-bottom py-3">
+        <div>
+            <h5 class="offcanvas-title fw-bold font-head m-0" style="color: var(--primary);">Nuevo Préstamo</h5>
+            <p class="text-muted small m-0 font-body">Asignar equipo a técnico</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body p-0 font-body bg-body custom-scrollbar" id="form-prestamo-body"></div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasDetallePrestamo" style="width: 500px;">
+    <div class="offcanvas-header-std bg-white border-bottom py-3">
+        <div>
+            <h5 class="offcanvas-title fw-bold font-head m-0" style="color: var(--primary);">Ficha de Préstamo</h5>
+            <p class="text-muted small m-0 font-body">Detalles y trazabilidad</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body p-0 font-body bg-body custom-scrollbar" id="detalle-prestamo-body"></div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasHistorial" style="width: 500px;">
+    <div class="offcanvas-header-std bg-white border-bottom py-3">
+        <div>
+            <h5 class="offcanvas-title fw-bold font-head m-0" style="color: var(--primary);">Historial Reciente</h5>
+            <p class="text-muted small m-0 font-body">Últimos 30 días de movimientos</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+    <div class="offcanvas-body p-0 font-body bg-body custom-scrollbar" id="historial-body"></div>
+</div>
+

@@ -1,0 +1,361 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script>
+  
+const DateUtils = {
+    /**
+     * Convierte string ISO (YYYY-MM-DD) a formato visual (DD/MM/YYYY)
+     * Sin aplicar conversión de zona horaria.
+     */
+    toUserDate: function(isoString) {
+        if (!isoString) return "-";
+        const cleanDate = isoString.split('T')[0]; 
+        const [year, month, day] = cleanDate.split('-');
+        return `${day}/${month}/${year}`;
+    },
+
+    /**
+     * Convierte string ISO a objeto Date local (00:00:00 hora Perú)
+     */
+    toLocalDateObj: function(isoString) {
+        if (!isoString) return null;
+        const cleanDate = isoString.split('T')[0];
+        const [year, month, day] = cleanDate.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }
+};
+
+  // ==========================================
+  // VARIABLES GLOBALES DEL SISTEMA
+  // ==========================================
+  let loginModal;
+  
+  const StitchFeedback = {
+    success: (msg) => Swal.fire({ toast: true, position: 'bottom-start', icon: 'success', title: msg, showConfirmButton: false, timer: 2000 }),
+    error: (msg) => Swal.fire({ toast: true, position: 'bottom-start', icon: 'error', title: msg, showConfirmButton: false, timer: 4000 }),
+    loading: (msg="Procesando...") => Swal.fire({ toast: true, position: 'bottom-start', didOpen: () => Swal.showLoading(), title: msg, showConfirmButton: false })
+  };
+
+  /**
+ * MÓDULO UX: MTPC TOAST V2
+ * Notificaciones nativas estilo Stitch (Centro Inferior)
+ */
+const MTPC_Toast = {
+    
+    // Contenedor interno
+    _container: null,
+
+    // Método inicializador (crea el div si no existe)
+    _init: function() {
+        if (!document.getElementById('mtpc-toast-container')) {
+            this._container = document.createElement('div');
+            this._container.id = 'mtpc-toast-container';
+            document.body.appendChild(this._container);
+        } else {
+            this._container = document.getElementById('mtpc-toast-container');
+        }
+    },
+
+    // Lógica base para mostrar
+    _show: function(msg, type, iconClass, duration = 3000) {
+        this._init();
+
+        // Crear el elemento Toast
+        const toast = document.createElement('div');
+        toast.className = `mtpc-toast ${type}`;
+        
+        // Icono (Si es loading, agregamos animación spin)
+        const spinClass = type === 'loading' ? 'fa-spin' : '';
+        
+        toast.innerHTML = `
+            <i class="fa-solid ${iconClass} ${spinClass} toast-icon ${type}"></i>
+            <span class="fw-medium">${msg}</span>
+        `;
+
+        // Agregar al contenedor
+        this._container.appendChild(toast);
+
+        // Si NO es loading, se auto-elimina
+        if (type !== 'loading') {
+            setTimeout(() => {
+                toast.style.animation = 'toastFadeOut 0.3s forwards';
+                setTimeout(() => {
+                    if (toast.parentElement) toast.remove();
+                }, 300);
+            }, duration);
+        } else {
+            // Si es loading, retornamos el elemento para poder eliminarlo manualmente luego
+            return toast;
+        }
+    },
+
+    // --- MÉTODOS PÚBLICOS (API) ---
+
+    success: function(msg) {
+        this.hideLoading(); // Limpia cargas previas si las hay
+        this._show(msg, 'success', 'fa-check-circle', 3000);
+    },
+
+    error: function(msg) {
+        this.hideLoading();
+        this._show(msg, 'error', 'fa-circle-xmark', 5000);
+    },
+
+    loading: function(msg = "Procesando...") {
+        // Guardamos referencia al loader actual
+        this._currentLoader = this._show(msg, 'loading', 'fa-circle-notch', 0);
+    },
+
+    hideLoading: function() {
+        if (this._currentLoader) {
+            const t = this._currentLoader;
+            t.style.animation = 'toastFadeOut 0.3s forwards';
+            setTimeout(() => { if (t.parentElement) t.remove(); }, 300);
+            this._currentLoader = null;
+        }
+    }
+};
+
+  // ==========================================
+  // 1. INICIALIZACIÓN
+  // ==========================================
+  document.addEventListener('DOMContentLoaded', function() {
+    const modalElement = document.getElementById('modalLogin');
+    if (modalElement) {
+       loginModal = new bootstrap.Modal(modalElement, { backdrop: 'static', keyboard: false });
+    }
+
+    const sesion = localStorage.getItem('MTPC_Sesion');
+    if (sesion) {
+        try {
+            const usuario = JSON.parse(sesion);
+            restaurarInterfaz(usuario);
+        } catch (e) {
+            mostrarLogin();
+        }
+    } else {
+        mostrarLogin();
+    }
+
+    const spinner = document.querySelector('.empty-state');
+    if(spinner) spinner.style.display = 'none';
+  });
+
+  function mostrarLogin() {
+    // Forzamos la clase que prepara el fondo (si usas el estilo de login-active)
+    document.body.classList.add('login-active');
+    
+    // Reiniciamos los campos del formulario por privacidad
+    const userField = document.getElementById('login_user');
+    const passField = document.getElementById('login_pass');
+    if(userField) userField.value = '';
+    if(passField) passField.value = '';
+
+    // Mostramos el modal de Bootstrap
+    if (loginModal) {
+      loginModal.show();
+    } else {
+      const modalElement = document.getElementById('modalLogin');
+      loginModal = new bootstrap.Modal(modalElement, { backdrop: 'static', keyboard: false });
+      loginModal.show();
+    }
+  }
+
+  function restaurarInterfaz(u) {
+    if(loginModal) loginModal.hide();
+    document.body.classList.remove('login-active');
+    
+    if(document.getElementById('lbl-usuario')) document.getElementById('lbl-usuario').innerText = u.nombre;
+    if(document.getElementById('lbl-rol')) document.getElementById('lbl-rol').innerText = u.rol;
+    if(document.getElementById('lbl-email-dropdown')) document.getElementById('lbl-email-dropdown').innerText = u.email || 'usuario@mtpc.com';
+
+    // --- CORRECCIÓN F5 AQUÍ ---
+    // En lugar de ir siempre al dashboard, recuperamos la memoria
+    const ultimaVista = localStorage.getItem('MTPC_UltimaVista') || 'dash-logistica';
+    
+    // Pequeño delay para asegurar estabilidad del DOM
+    setTimeout(() => {
+        navegar(ultimaVista);
+    }, 100);
+  }
+
+  // ==========================================
+  // 2. SEGURIDAD (LOGIN/LOGOUT)
+  // ==========================================
+  function iniciarSesion() {
+    const u = document.getElementById('login_user').value;
+    const p = document.getElementById('login_pass').value;
+    const btn = document.querySelector('button[type="submit"]');
+    const msg = document.getElementById('login_msg');
+
+    if(!u || !p) { msg.innerText = "Ingresa credenciales"; return; }
+
+    const originalText = btn.innerText;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+    btn.disabled = true;
+    msg.innerText = "";
+
+    google.script.run
+      .withSuccessHandler(res => {
+         btn.innerHTML = originalText;
+         btn.disabled = false;
+         if(res.exito) {
+             const sesion = { id: res.id, nombre: res.nombre, rol: res.rol, email: u };
+             localStorage.setItem('MTPC_Sesion', JSON.stringify(sesion));
+             restaurarInterfaz(sesion);
+             Swal.fire({ icon: 'success', title: '¡Hola de nuevo!', showConfirmButton: false, timer: 1500 });
+         } else {
+             msg.innerText = res.error || "Error de acceso";
+         }
+      })
+      .validarLogin(u, p);
+  }
+
+  function cerrarSesion() {
+    Swal.fire({
+      title: '¿Cerrar Sesión?',
+      text: "Se borrarán los datos temporales de la vista actual.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#00295b',
+      confirmButtonText: 'Sí, salir',
+      cancelButtonText: 'Cancelar'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        // 1. LIMPIEZA DE DATOS (Seguridad)
+        localStorage.removeItem('MTPC_Sesion');
+        localStorage.removeItem('MTPC_UltimaVista');
+        
+        // 2. LIMPIEZA DE INTERFAZ (Sin recargar)
+        // Borramos el contenido de la página actual para que no se vea nada atrás
+        const container = document.getElementById('app-container');
+        if(container) container.innerHTML = '';
+        
+        const title = document.getElementById('page-title');
+        if(title) title.innerText = 'Bienvenido';
+
+        // 3. RESET DE VARIABLES GLOBALES (Opcional pero recomendado)
+        // Si tienes variables de caché en otros archivos, las reseteamos aquí
+        if (typeof cacheProductos !== 'undefined') cacheProductos = [];
+        if (typeof listaProveedoresCache !== 'undefined') listaProveedoresCache = [];
+
+        // 4. MOSTRAR LOGIN
+        // Llamamos a la función que abre el modal o cambia la vista
+        mostrarLogin();
+
+        StitchFeedback.success("Sesión finalizada correctamente");
+      }
+    });
+  }
+  // ==========================================
+  // 3. NAVEGACIÓN (ROUTER ACTIVO V2)
+  // ==========================================
+  function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('collapsed');
+    document.getElementById('main-content').classList.toggle('expanded');
+  }
+
+  function navegar(vista, el) {
+     // --- CORRECCIÓN F5 AQUÍ ---
+     // Guardamos la decisión del usuario
+     localStorage.setItem('MTPC_UltimaVista', vista);
+
+     if(el) {
+         document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+         el.classList.add('active');
+     } else {
+         // Si venimos de un F5, intentamos iluminar el menú correcto automáticamente
+         const menuLink = document.querySelector(`.nav-item[onclick*="'${vista}'"]`);
+         if(menuLink) {
+             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+             menuLink.classList.add('active');
+         }
+     }
+
+     const titulos = {
+         'dash-logistica': 'Dashboard General',
+         'configuracion': '',
+         'productos': '',
+         'compras': '',
+         'despachos': '',
+         'prestamos': '',
+         'licencias': '',
+         'proveedores': ''
+     };
+
+     const titleEl = document.getElementById('page-title');
+     if(titleEl) titleEl.innerText = titulos[vista] || 'Sistema Logístico';
+     
+     const container = document.getElementById('app-container');
+     
+     // Loader unificado
+     container.innerHTML = `<div class="d-flex justify-content-center align-items-center h-100 py-5"><div class="stitch-loader"></div></div>`;
+
+     // ENRUTADOR SIN COMENTARIOS - TODOS ACTIVOS
+     setTimeout(() => {
+         switch(vista) {
+             case 'configuracion': renderConfiguracion(); break;
+             case 'licencias':     renderLicencias(); break;
+             case 'productos':     renderProductos(); break;
+             case 'proveedores':   renderProveedores(); break;
+             case 'compras':       renderCompras(); break;
+             case 'despachos':     renderDespachos(); break;
+             case 'prestamos':     renderPrestamos(); break;
+             
+             case 'dash-logistica': 
+                 container.innerHTML = `<div class="alert alert-info border-0 shadow-sm"><i class="fa-solid fa-chart-line me-2"></i>Dashboard en construcción para V2...</div>`; 
+                 break;
+                 
+             default:
+                 container.innerHTML = `<div class="text-center text-muted py-5"><i class="fa-solid fa-bug fa-3x mb-3"></i><h5>Error de Ruta</h5><p>No existe función para: <b>${vista}</b></p></div>`;
+         }
+     }, 50);
+  }
+
+  /**
+ * MÓDULO UX: MTPC DIALOGS (SWAL V2)
+ * Diálogos centrales basados en el diseño Standardized Feedback
+ */
+const MTPC_Dialog = {
+    
+    // 1. Diálogo de Confirmación (Acciones Peligrosas)
+    confirm: function(titulo, mensaje, textoBoton = "Confirmar", color = "#135bec") {
+        return Swal.fire({
+            title: titulo,
+            html: mensaje,
+            icon: 'warning',
+            iconColor: '#ef4444', // Rojo danger del mockup
+            showCancelButton: true,
+            confirmButtonText: textoBoton,
+            cancelButtonText: 'Cancelar',
+            customClass: {
+                popup: 'mtpc-swal-popup',
+                title: 'mtpc-swal-title',
+                htmlContainer: 'mtpc-swal-html',
+                confirmButton: 'mtpc-swal-confirm',
+                cancelButton: 'mtpc-swal-cancel'
+            },
+            buttonsStyling: false,
+            confirmButtonColor: color,
+            reverseButtons: true
+        });
+    },
+
+    // 2. Diálogo de Éxito (Informativo Central)
+    success: function(titulo, mensaje) {
+        return Swal.fire({
+            title: titulo,
+            html: mensaje,
+            icon: 'success',
+            iconColor: '#22c55e', // Verde success del mockup
+            confirmButtonText: 'Entendido',
+            customClass: {
+                popup: 'mtpc-swal-popup',
+                title: 'mtpc-swal-title',
+                htmlContainer: 'mtpc-swal-html',
+                confirmButton: 'mtpc-swal-confirm'
+            },
+            buttonsStyling: false
+        });
+    }
+};
+</script>

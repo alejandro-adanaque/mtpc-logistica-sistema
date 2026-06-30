@@ -1,0 +1,313 @@
+<div class="container-fluid-stitch animate__animated animate__fadeIn">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h2 class="fw-bold m-0" style="color: var(--primary); font-family: var(--font-head);">Gestión de Compras</h2>
+            <p class="text-muted m-0 small font-body">Abastecimiento de stock y análisis de costos.</p>
+        </div>
+        <div class="d-flex gap-3">
+            <button class="btn-std btn-std-outline shadow-sm" onclick="abrirOffcanvasAnalisis()">
+                <i class="fa-solid fa-chart-line"></i> Analizar Precios
+            </button>
+            <button class="btn-std btn-std-primary shadow-sm" onclick="abrirOffcanvasCompra()">
+                <i class="fa-solid fa-plus"></i> Nueva Orden
+            </button>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4" id="metrics-compras">
+        <div class="col-12 text-center py-3"><div class="stitch-spinner mx-auto"></div></div>
+    </div>
+
+    <div class="card-std bg-white shadow-sm">
+        
+        <div class="toolbar-std p-3 border-bottom d-flex align-items-center flex-wrap gap-3">
+            
+            <div class="d-flex gap-2 flex-grow-1">
+                <div style="min-width: 220px;">
+                    <div class="input-std-wrapper">
+                        <i class="fa-solid fa-layer-group input-std-icon text-muted small"></i>
+                        <select id="filtro-prov" class="input-std cursor-pointer" onchange="aplicarFiltrosCompras()">
+                            <option value="">Todos los Proveedores</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ms-auto" style="min-width: 300px;">
+                <div class="input-std-wrapper">
+                    <i class="fa-solid fa-magnifying-glass input-std-icon"></i>
+                    <input type="text" id="buscador-compras" class="input-std" placeholder="Buscar Orden, Proveedor..." onkeyup="aplicarFiltrosCompras()">
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table-std w-100">
+                <thead>
+                    <tr>
+                        <th class="ps-4">Código OC</th>
+                        <th>Fecha</th>
+                        <th>Proveedor</th>
+                        <th>Cuenta Pago</th>
+                        <th class="text-center">Estado</th>
+                        <th class="text-end">Total</th>
+                        <th class="pe-4 text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-compras-body"></tbody>
+            </table>
+        </div>
+
+        <div class="pagination-std bg-white border-top">
+            <span class="text-muted small me-auto font-head fw-bold" id="info-paginacion-comp">Cargando...</span>
+            <nav><ul class="pagination pagination-stitch mb-0" id="paginacion-container-comp"></ul></nav>
+        </div>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasCompra" style="width: 1100px;">
+    
+    <div class="offcanvas-header-std bg-white border-bottom">
+        <div>
+            <h5 class="fw-bold font-head m-0 text-primary">Nueva Orden de Compra</h5>
+            <p class="text-muted small m-0 font-body">Seleccione productos para abastecer</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+    
+    <div class="offcanvas-body p-0 d-flex font-body bg-light" style="overflow: hidden; height: 100%;">
+        
+        <div class="d-flex flex-column bg-white border-end" style="width: 55%; height: 100%;">
+            <div class="p-3 border-bottom sticky-top bg-white z-2">
+                <div class="input-std-wrapper" style="background-color: var(--primary-bg); border-radius: 2rem; border:none; padding-left: 1rem;">
+                    <i class="fa-solid fa-search input-std-icon text-primary"></i>
+                    <input type="text" class="input-std" 
+                           style="background: transparent; border: none; padding-left: 2.5rem; height: 45px;" 
+                           placeholder="Buscar repuesto (SKU / Nombre)..." 
+                           onkeyup="filtrarCatalogo(this.value)">
+                </div>
+            </div>
+            
+            <div class="flex-grow-1 overflow-y-auto p-3 custom-scrollbar" id="grid-catalogo" style="background-color: #f8fafc;">
+                </div>
+
+            <div class="p-3 bg-white border-top d-flex justify-content-between align-items-center">
+                <small class="text-muted font-head fw-bold" id="info-paginacion-cat"></small>
+                <nav><ul class="pagination pagination-sm mb-0 gap-1 pagination-stitch" id="paginacion-catalogo-container"></ul></nav>
+            </div>
+        </div>
+
+        <div class="d-flex flex-column" style="width: 45%; height: 100%; background-color: #fff;">
+            
+            <div class="p-3 border-bottom d-flex align-items-center gap-2 bg-white">
+                <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                    <i class="fa-solid fa-file-invoice"></i>
+                </div>
+                <h6 class="fw-bold m-0 font-head text-primary small text-uppercase">Datos de la Orden</h6>
+            </div>
+
+            <div class="flex-grow-1 overflow-y-auto p-4 custom-scrollbar">
+                
+                <div class="offcanvas-section mb-4">
+                    <div class="row g-4">
+                        <div class="col-12">
+                            <div class="md3-input-wrapper">
+                                <div class="md3-input-group">
+                                    <i class="fa-solid fa-truck-field text-muted opacity-50"></i>
+                                    <select id="cart-prov" class="md3-input-field fw-bold text-dark cursor-pointer"></select>
+                                </div>
+                                <label class="md3-label">Proveedor *</label>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <div class="md3-input-wrapper">
+                                <div class="md3-input-group">
+                                    <i class="fa-solid fa-wallet text-muted opacity-50"></i>
+                                    <select id="cart-cuenta" class="md3-input-field cursor-pointer"></select>
+                                </div>
+                                <label class="md3-label">Cuenta de Pago *</label>
+                            </div>
+                        </div>
+
+                        <div class="col-6">
+                            <div class="md3-input-wrapper">
+                                <div class="md3-input-group">
+                                    <i class="fa-solid fa-file-lines text-muted opacity-50"></i>
+                                    <select id="cart-doc" class="md3-input-field cursor-pointer" onchange="recalcularTotalCarrito()">
+                                        <option value="Factura">Factura</option>
+                                        <option value="Boleta">Boleta</option>
+                                        <option value="Recibo">Recibo</option>
+                                    </select>
+                                </div>
+                                <label class="md3-label">Tipo Doc</label>
+                            </div>
+                        </div>
+
+                        <div class="col-6">
+                            <div class="md3-input-wrapper">
+                                <div class="md3-input-group">
+                                    <i class="fa-regular fa-calendar text-muted opacity-50"></i>
+                                    <input type="date" id="cart-fecha" class="md3-input-field cursor-pointer">
+                                </div>
+                                <label class="md3-label">Fecha Emisión</label>
+                            </div>
+                        </div>
+
+                        <div class="col-12 mt-2">
+                          <div class="switch-wrapper">
+                              <span class="switch-label text-off" id="lbl-borrador">Borrador</span>
+                              
+                              <label class="toggle-switch">
+                                  <input type="checkbox" id="check-estado" onchange="cambiarEstadoSwitch(this)">
+                                  <span class="toggle-slider"></span>
+                              </label>
+                              
+                              <span class="switch-label text-off" id="lbl-confirmado">Confirmado</span>
+                          </div>
+                          
+                          <p class="text-center text-muted mt-1 m-0 x-small" style="font-size: 0.65rem;">
+                              Cambia para confirmar el ingreso de stock.
+                          </p>
+
+                          <input type="hidden" id="cart-estado" value="Borrador">
+                      </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center mb-3 px-1 border-top pt-3">
+                    <small class="text-muted fw-bold text-uppercase font-head" style="font-size: 0.7rem;">Ítems Agregados</small>
+                    <span class="badge bg-primary rounded-pill" id="badge-items-count">0</span>
+                </div>
+                
+                <div id="cart-items-list" class="d-flex flex-column gap-3 pb-4">
+                    </div>
+            </div>
+
+            <div class="p-4 bg-white border-top shadow-lg z-3">
+                <div class="d-flex justify-content-between mb-1 small text-muted">
+                    <span>Subtotal: S/ <span id="lbl-subtotal">0.00</span></span>
+                    <span>IGV: S/ <span id="lbl-igv">0.00</span></span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <span class="font-bold font-head text-dark">TOTAL</span>
+                    <span class="font-bold fs-2 text-primary">S/ <span id="lbl-total">0.00</span></span>
+                </div>
+                <button class="btn-std btn-std-primary w-100 py-3 shadow-md font-head fw-bold" onclick="guardarOrdenCompra()">
+                    <i class="fa-solid fa-check-circle me-2"></i> GENERAR ORDEN
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="offcanvas offcanvas-std offcanvas-end border-0 shadow-lg" tabindex="-1" id="offcanvasAnalisis" style="width: 750px;">
+    
+    <div class="offcanvas-header-std bg-white border-bottom py-3">
+        <div>
+            <h5 class="fw-bold font-head m-0 text-primary text-uppercase" style="letter-spacing: 1px;">Inteligencia de Precios</h5>
+            <p class="text-muted small m-0 font-body">Análisis de costos e historial de adquisiciones</p>
+        </div>
+        <button type="button" class="btn-close shadow-none" data-bs-dismiss="offcanvas"></button>
+    </div>
+
+    <div class="offcanvas-body p-4 bg-body custom-scrollbar">
+        
+        <div class="card-std p-2 mb-3 border-0 shadow-sm">
+            <div class="md3-input-group border-0 shadow-none" style="min-height: 45px;">
+                <i class="fa-solid fa-magnifying-glass text-muted ms-2 me-3"></i>
+                <input type="text" id="analisis-prod-search" class="md3-input-field fw-bold" 
+                       placeholder="Buscar producto en Mi Técnico PC..." list="lista-productos-analisis"
+                       onchange="validarYEjecutarAnalisis(this.value)" style="font-size: 1rem;">
+                <datalist id="lista-productos-analisis"></datalist>
+            </div>
+        </div>
+
+        <div id="header-contexto-producto" class="card-std p-3 mb-4 border-start border-primary border-4 shadow-sm d-none" style="background: #f8fbff;">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="flex-grow-1">
+                    <p class="text-primary fw-bold mb-1" style="font-size: 0.75rem; text-transform: uppercase;">Visualizando ahora:</p>
+                    <h6 id="display-nombre-prod" class="font-head fw-bold text-dark m-0" style="font-size: 1.1rem;">---</h6>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary rounded-pill px-3 py-2">
+                        <i class="fa-solid fa-boxes-stacked me-1"></i> Stock: <span id="display-stock-prod">0</span>
+                    </span>
+                    <button class="btn btn-link text-muted p-0 ms-2 shadow-none" onclick="resetearAnalisis()">
+                        <i class="fa-solid fa-circle-xmark fa-lg"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="analisis-content">
+            <div id="placeholder-analisis" class="text-center py-5 opacity-50">
+                <i class="fa-solid fa-magnifying-glass-chart fa-3x mb-3 text-muted"></i>
+                <h6 class="fw-bold">Esperando selección</h6>
+                <p class="small">Selecciona un producto para cargar los KPIs y el gráfico</p>
+            </div>
+
+            <div id="data-container-analisis" class="d-none">
+                
+                <div class="row g-3 mb-4">
+                    <div class="col-4">
+                        <div class="card-std p-3 border-0 shadow-sm text-center">
+                            <p class="text-muted x-small mb-1">Último Costo</p>
+                            <h5 class="fw-bold m-0 text-dark" id="kpi-ultimo">S/ 0.00</h5>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="card-std p-3 border-0 shadow-sm text-center">
+                            <p class="text-muted x-small mb-1">Costo Promedio</p>
+                            <h5 class="fw-bold m-0 text-dark" id="kpi-promedio">S/ 0.00</h5>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="card-std p-3 border-0 shadow-sm text-center">
+                            <p class="text-muted x-small mb-1">Mejor Precio</p>
+                            <h5 class="fw-bold m-0 text-success" id="kpi-mejor">S/ 0.00</h5>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-std p-4 mb-4 border-0 shadow-sm">
+                    <div class="d-flex justify-content-between align-items-center mb-4">
+                        <p class="fw-bold small m-0 text-muted text-uppercase" style="letter-spacing: 1px;">Tendencia de Costos</p>
+                        <span class="badge bg-light text-muted border border-light-subtle fw-normal">Histórico 6 meses</span>
+                    </div>
+                    <div style="height: 250px; width: 100%;">
+                        <canvas id="precioChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card-std p-0 border-0 shadow-sm overflow-hidden">
+                    <div class="p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
+                        <p class="fw-bold small m-0 text-uppercase text-muted">Últimas Adquisiciones</p>
+                        <i class="fa-solid fa-clock-rotate-left text-muted"></i>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0" style="font-size: 0.85rem;">
+                            <thead class="bg-white">
+                                <tr>
+                                    <th class="ps-3 border-0 text-muted fw-normal">Fecha</th>
+                                    <th class="border-0 text-muted fw-normal">Proveedor</th>
+                                    <th class="border-0 text-muted fw-normal">OC</th>
+                                    <th class="pe-3 text-end border-0 text-muted fw-normal">Costo Unit.</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historial-compras-body" class="border-top-0">
+                                <tr>
+                                    <td class="ps-3 py-3">09/02/2026</td>
+                                    <td class="py-3 fw-bold">Smart Prints SAC</td>
+                                    <td class="py-3"><span class="badge bg-light text-dark border">OCMTPC-02729</span></td>
+                                    <td class="pe-3 py-3 text-end fw-bold text-primary">S/ 180.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div> 
+          </div>
+    </div>
+</div>

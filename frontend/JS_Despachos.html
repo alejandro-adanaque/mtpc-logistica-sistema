@@ -1,0 +1,1038 @@
+<script>
+/**
+ * MÓDULO: GESTIÓN DE DESPACHOS (V2)
+ * Lógica Completa: Carrito, Tendencias y Ticket Térmico
+ */
+
+var listaProductosDespacho = [];
+var carritoDespacho = [];
+var usuariosCache = [];
+var despachoCache = [];
+var currentPagCatDesp = 1;
+var itemsPerPagCatDesp = 10;
+var listaFiltradaDesp = [];
+var modoCatalogo = 'HARDWARE'; 
+var currentPagTablaDesp = 1;
+var itemsPerPagTablaDesp = 10;
+var hotTopicsChart = null;
+var cacheTablaFiltrada = [];
+
+// ==========================================
+// 1. RENDERIZADO
+// ==========================================
+function renderDespachos() {
+    var container = document.getElementById('app-container');
+    if (!container) return;
+
+    // Loader Corporativo (Igual a Compras)
+    container.innerHTML = `
+        <div class="loader-container animate__animated animate__fadeIn">
+            <div class="stitch-spinner"></div>
+            <h5 class="fw-bold mt-3 text-primary">Cargando Despachos</h5>
+            <p class="small text-muted">Sincronizando salidas a taller y técnicos...</p>
+        </div>`;
+    
+    google.script.run.withSuccessHandler(html => {
+        container.innerHTML = html;
+        cargarHistorialDespachos(); // Primera carga de datos
+    }).obtenerVista('View_Despachos');
+}
+
+// ==========================================
+// 2. LÓGICA DE DATOS
+// ==========================================
+function cargarHistorialDespachos() {
+    // Localizamos el cuerpo de la tabla
+    var tbody = document.getElementById('tabla-despachos-body');
+    
+    // Si la tabla ya está renderizada (acciones internas), ponemos loader SOLO ahí
+    if(tbody) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5"><div class="stitch-spinner mx-auto"></div></td></tr>';
+    }
+
+    // Llamadas al Backend
+    var pDesp = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('despachos', '*, usuarios!solicitante_id(nombre_completo)', '&order=id.desc'));
+    var pUsers = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).srvObtenerUsuarios());
+
+    Promise.all([pDesp, pUsers]).then(res => {
+        var resDesp = res[0];
+        var resUsers = res[1];
+
+        if(!resDesp.exito) return MTPC_Toast.error(res[0].error);
+        
+        despachoCache = resDesp.datos || [];
+        if(resUsers.exito) usuariosCache = resUsers.datos || [];
+
+        // Llenar filtro de usuarios (solo si existe el elemento)
+        var selFiltro = document.getElementById('filtro-user-desp');
+        if(selFiltro) {
+            var html = '<option value="">Todos los Técnicos</option>';
+            usuariosCache.forEach(u => html += `<option value="${u.nombre_completo}">${u.nombre_completo}</option>`);
+            selFiltro.innerHTML = html;
+        }
+
+        renderizarKPIsDespacho();
+        aplicarFiltrosTablaDespachos(); // Esto llamará a renderizarTablaDespachos()
+    });
+}
+
+function renderizarKPIsDespacho() {
+    var container = document.getElementById('metrics-despachos');
+    if (!container) return;
+
+    // --- 1. LÓGICA DE CÁLCULO (Sincronizada con Compras) ---
+    var hoy = new Date();
+    var mesActual = hoy.getMonth();
+    var anioActual = hoy.getFullYear();
+
+    // Filtramos los despachos del mes actual
+    var despachosMes = despachoCache.filter(d => {
+        var fechaD = new Date(d.fecha + 'T00:00:00');
+        return fechaD.getMonth() === mesActual && fechaD.getFullYear() === anioActual;
+    });
+
+    // REGLA DE NEGOCIO: Solo sumamos valorizado si el estado es 'Confirmado'
+    var totalValorizado = despachosMes
+        .filter(d => d.estado === 'Confirmado')
+        .reduce((sum, d) => sum + parseFloat(d.total_venta || 0), 0);
+
+    // Conteo de salidas pendientes (Borradores o cualquier estado no Confirmado)
+    var pendientes = despachoCache.filter(d => d.estado !== 'Confirmado').length;
+
+    // --- 2. RENDERIZADO (Estilo Card-KPI MTPC) ---
+    var html = '';
+
+    // KPI 1: Salidas del Mes (Conteo total)
+    html += `
+        <div class="col-md-4">
+            <div class="card-kpi kpi-blue">
+                <div class="kpi-icon-wrapper"><i class="fa-solid fa-dolly"></i></div>
+                <div>
+                    <div class="kpi-title">Salidas (Mes)</div>
+                    <div class="kpi-value">${despachosMes.length}</div>
+                    <div class="kpi-subtitle">Total de movimientos</div>
+                </div>
+            </div>
+        </div>`;
+
+    // KPI 2: Valorizado Real (Solo Confirmados)
+    html += `
+        <div class="col-md-4">
+            <div class="card-kpi kpi-green">
+                <div class="kpi-icon-wrapper"><i class="fa-solid fa-sack-dollar"></i></div>
+                <div>
+                    <div class="kpi-title">Valorizado (Mes)</div>
+                    <div class="kpi-value">S/ ${totalValorizado.toLocaleString('en-US', {minimumFractionDigits: 2})}</div>
+                    <div class="kpi-subtitle">Solo salidas confirmadas</div>
+                </div>
+            </div>
+        </div>`;
+
+    // KPI 3: Pendientes de Despacho (Borradores)
+    html += `
+        <div class="col-md-4">
+            <div class="card-kpi kpi-yellow">
+                <div class="kpi-icon-wrapper"><i class="fa-regular fa-clock"></i></div>
+                <div>
+                    <div class="kpi-title">Por Despachar</div>
+                    <div class="kpi-value">${pendientes}</div>
+                    <div class="kpi-subtitle">Borradores en espera</div>
+                </div>
+            </div>
+        </div>`;
+
+    container.innerHTML = html;
+}
+
+function aplicarFiltrosTablaDespachos() {
+    var txt = document.getElementById('buscador-desp').value.toLowerCase();
+    var user = document.getElementById('filtro-user-desp').value;
+    var tipo = document.getElementById('filtro-tipo-desp').value;
+
+    // Guardamos el resultado en la variable GLOBAL
+    cacheTablaFiltrada = despachoCache.filter(d => {
+        var matchTxt = d.codigo_despacho.toLowerCase().includes(txt) || (d.nro_orden_ref || '').toLowerCase().includes(txt);
+        var nombreUser = d.usuarios ? d.usuarios.nombre_completo : '';
+        var matchUser = user ? nombreUser === user : true;
+        var matchTipo = tipo ? d.tipo_salida === tipo : true;
+        return matchTxt && matchUser && matchTipo;
+    });
+
+    currentPagTablaDesp = 1; // Al filtrar, siempre volvemos a la primera página
+    renderizarTablaDespachos(cacheTablaFiltrada);
+}
+
+function renderizarTablaDespachos(lista) {
+    var tbody = document.getElementById('tabla-despachos-body');
+    if(!tbody) return;
+
+    var totalItems = lista.length;
+    var totalPages = Math.ceil(totalItems / itemsPerPagTablaDesp) || 1;
+    
+    // Validación de página actual
+    if(currentPagTablaDesp > totalPages) currentPagTablaDesp = totalPages;
+    if(currentPagTablaDesp < 1) currentPagTablaDesp = 1;
+
+    var start = (currentPagTablaDesp - 1) * itemsPerPagTablaDesp;
+    var datosPagina = lista.slice(start, start + itemsPerPagTablaDesp);
+    
+    // ESTADO VACÍO (Uniforme con Compras)
+    if(totalItems === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center py-5 text-muted fst-italic font-body">Sin registros de salidas a taller.</td></tr>';
+        document.getElementById('pag-tabla-dsp').innerHTML = '';
+        document.getElementById('info-pag-tabla-dsp').innerText = '0 registros';
+        return;
+    }
+
+    let html = '';
+    const sesion = JSON.parse(localStorage.getItem('MTPC_Sesion') || '{}');
+    const esAdmin = sesion.rol === 'Administrador';
+
+    datosPagina.forEach(d => {
+        var fecha = new Date(d.fecha + 'T00:00:00').toLocaleDateString();
+        var solicitante = d.usuarios ? d.usuarios.nombre_completo : '<span class="text-danger">Eliminado</span>';
+        
+        // --- ESTILO DE PILLS DE ESTADO (Uniforme con Compras) ---
+        let pillClass = d.estado === 'Confirmado' ? 'pill-health-good' : 'pill-health-warning';
+        let iconState = d.estado === 'Confirmado' ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-solid fa-clock"></i>';
+        
+        // Icono representativo (Dolly para Despacho)
+        let iconDoc = '<i class="fa-solid fa-dolly text-primary"></i>';
+
+        html += `
+            <tr class="align-middle border-bottom animate__animated animate__fadeIn">
+                <td class="ps-4 py-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-3 bg-light border d-flex align-items-center justify-content-center" style="width:42px; height:42px;">
+                            ${iconDoc}
+                        </div>
+                        <div>
+                            <div class="fw-bold text-primary font-head" style="font-size:0.9rem;">${d.codigo_despacho}</div>
+                            <div class="small text-muted text-uppercase" style="font-size:0.65rem;">Salida a Taller</div>
+                        </div>
+                    </div>
+                </td>
+                
+                <td class="text-muted small font-body">${fecha}</td>
+                
+                <td><div class="fw-bold text-dark text-truncate font-head" style="max-width: 180px;">${solicitante}</div></td>
+                
+                <td><span class="badge bg-light text-dark border fw-normal">${d.nro_orden_ref || '-'}</span></td>
+                
+                <td class="text-center">
+                    <div class="stock-pill ${pillClass}" style="font-size:0.7rem; min-width: 95px;">
+                        ${iconState} ${d.estado}
+                    </div>
+                </td>
+                
+                <td class="text-end fw-bold text-dark font-body">S/ ${parseFloat(d.total_venta).toFixed(2)}</td>
+                
+                <td class="pe-4 text-end">
+                    <div class="d-flex justify-content-end gap-1">
+                        <button class="btn-std btn-icon-only btn-std-outline shadow-sm" onclick="imprimirTicketTermico(${d.id})" title="Imprimir Ticket">
+                            <i class="fa-solid fa-receipt"></i>
+                        </button>
+                        
+                        ${d.estado !== 'Confirmado' ? `
+                            <button class="btn-std btn-icon-only btn-std-outline text-success shadow-sm" onclick="confirmarDespachoExistente(${d.id}, '${d.codigo_despacho}')" title="Confirmar Despacho">
+                                <i class="fa-solid fa-check"></i>
+                            </button>` : ''}
+                        
+                        ${esAdmin ? `
+                            <button class="btn-std btn-icon-only btn-std-outline text-danger shadow-sm" onclick="eliminarDespacho(${d.id}, '${d.codigo_despacho}', '${d.estado}')" title="Eliminar">
+                                <i class="fa-regular fa-trash-can"></i>
+                            </button>` : ''}
+                    </div>
+                </td>
+            </tr>`;
+    });
+    
+    tbody.innerHTML = html;
+
+    // --- PAGINACIÓN ESTANDARIZADA (Consistente con Compras) ---
+    document.getElementById('info-pag-tabla-dsp').innerHTML = `Mostrando <b>${start + 1}-${Math.min(start + itemsPerPagTablaDesp, totalItems)}</b> de <b>${totalItems}</b>`;
+    
+    let pagHtml = `<button class="page-btn ${currentPagTablaDesp===1?'disabled':''}" onclick="cambiarPagTabla(${currentPagTablaDesp-1})"><i class="fa-solid fa-chevron-left"></i></button>`;
+    
+    for(let i=1; i<=totalPages; i++) {
+        // Lógica de visualización de números (igual a compras)
+        if(i === 1 || i === totalPages || (i >= currentPagTablaDesp - 1 && i <= currentPagTablaDesp + 1)) {
+             pagHtml += `<button class="page-btn ${currentPagTablaDesp===i?'active':''}" onclick="cambiarPagTabla(${i})">${i}</button>`;
+        }
+    }
+    
+    pagHtml += `<button class="page-btn ${currentPagTablaDesp===totalPages?'disabled':''}" onclick="cambiarPagTabla(${currentPagTablaDesp+1})"><i class="fa-solid fa-chevron-right"></i></button>`;
+    
+    document.getElementById('pag-tabla-dsp').innerHTML = pagHtml;
+}
+
+function cambiarPagTabla(p) { 
+    if(p > 0) { 
+        currentPagTablaDesp = p; 
+        // NO llamamos a aplicarFiltros(), llamamos directo al render con la cache
+        renderizarTablaDespachos(cacheTablaFiltrada); 
+    } 
+}
+// ==========================================
+// 3. NUEVA SALIDA (LÓGICA CARRITO)
+// ==========================================
+function abrirOffcanvasDespacho() {
+    var bsOffcanvas = new bootstrap.Offcanvas(document.getElementById('offcanvasDespacho'));
+    bsOffcanvas.show();
+    
+    // Usamos srvObtenerInventarioCompleto para optimizar carga (trae productos y categorías en una sola llamada)
+    var pProds = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).srvObtenerInventarioCompleto());
+    
+    pProds.then(res => {
+        if(!res.exito) return MTPC_Toast.error(res.error);
+        
+        var productosRaw = res.datos.productos.filter(p => p.stock_actual > 0); 
+        var categorias = res.datos.categorias;
+
+        listaProductosDespacho = productosRaw.map(prod => {
+            var cat = categorias.find(c => String(c.id) === String(prod.categoria_id));
+            prod.nombreCategoria = cat ? cat.nombre.toUpperCase() : 'GENERAL';
+            return prod;
+        });
+
+        listaFiltradaDesp = [...listaProductosDespacho];
+        modoCatalogo = 'HARDWARE';
+        carritoDespacho = [];
+        
+        llenarSelectUsuariosDespacho();
+        document.getElementById('dsp-fecha').value = new Date().toISOString().split('T')[0];
+        cambiarModoCatalogo('HARDWARE');
+        recalcularCarritoDespacho();
+    });
+}
+
+function cambiarModoCatalogo(modo) {
+    modoCatalogo = modo;
+    var btnHard = document.getElementById('tab-hard');
+    var btnSoft = document.getElementById('tab-soft');
+    if(modo === 'HARDWARE') {
+        btnHard.className = 'btn btn-sm flex-grow-1 rounded-0 fw-bold border-0 border-bottom border-3 border-primary text-primary font-head py-2';
+        btnSoft.className = 'btn btn-sm flex-grow-1 rounded-0 fw-bold border-0 text-muted font-head py-2';
+    } else {
+        btnSoft.className = 'btn btn-sm flex-grow-1 rounded-0 fw-bold border-0 border-bottom border-3 border-warning text-dark font-head py-2';
+        btnHard.className = 'btn btn-sm flex-grow-1 rounded-0 fw-bold border-0 text-muted font-head py-2';
+    }
+    filtrarCatalogoDespacho(document.querySelector('#offcanvasDespacho input[type="text"]').value);
+}
+
+function filtrarCatalogoDespacho(texto) {
+    var t = texto.toLowerCase();
+    listaFiltradaDesp = listaProductosDespacho.filter(p => {
+        var matchText = p.nombre.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t);
+        var catNombre = (p.nombreCategoria || '').toUpperCase();
+        var tipoProd = (p.tipo_producto || '').toUpperCase();
+        var esLicencia = tipoProd === 'LICENCIA' || catNombre.includes('LICENCIA') || catNombre.includes('SOFTWARE');
+        var matchModo = (modoCatalogo === 'SOFTWARE') ? esLicencia : !esLicencia;
+        return matchText && matchModo;
+    });
+    currentPagCatDesp = 1;
+    renderizarCatalogoDespacho(listaFiltradaDesp);
+}
+
+function renderizarCatalogoDespacho(lista) {
+    itemsPerPagCatDesp = 10;
+    var totalItems = lista.length;
+    var totalPages = Math.ceil(totalItems / itemsPerPagCatDesp) || 1;
+    
+    // Validaciones de página actual
+    if(currentPagCatDesp > totalPages) currentPagCatDesp = totalPages;
+    if(currentPagCatDesp < 1) currentPagCatDesp = 1;
+    
+    var start = (currentPagCatDesp - 1) * itemsPerPagCatDesp;
+    var end = start + itemsPerPagCatDesp;
+    var datosPagina = lista.slice(start, end);
+    var grid = document.getElementById('grid-catalogo-dsp');
+    var html = '';
+
+    // Estado vacío
+    if(lista.length === 0) {
+        html = `
+            <div class="text-center py-5 text-muted opacity-50 font-body">
+                <i class="fa-solid fa-box-open fs-1 mb-2"></i>
+                <p>No se encontraron repuestos o licencias.</p>
+            </div>`;
+    }
+
+    // Renderizado de Tarjetas (Estilo Stitch / Mi Técnico PC)
+    datosPagina.forEach(p => {
+        // Lógica de Stock
+        const hayStock = p.stock_actual > 0;
+        const stockClass = hayStock ? 'pill-health-good' : 'pill-health-danger';
+        const stockText = hayStock ? `${p.stock_actual} und` : 'AGOTADO';
+        
+        // Selección de Icono según modo
+        const icon = modoCatalogo === 'SOFTWARE' ? 'fa-key text-warning' : 'fa-microchip text-primary';
+        
+        html += `
+            <div class="card-std p-3 mb-2 hover-bg cursor-pointer transition-all border shadow-sm" 
+                 onclick="agregarAlCarritoDespacho(${p.id})">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-3 overflow-hidden">
+                        <div class="rounded-3 bg-light d-flex align-items-center justify-content-center border" 
+                             style="width: 42px; height: 42px; min-width: 42px;">
+                            <i class="fa-solid ${icon} fs-5"></i>
+                        </div>
+                        <div class="overflow-hidden">
+                            <h6 class="fw-bold m-0 text-dark text-truncate font-head small" title="${p.nombre}">
+                                ${p.nombre}
+                            </h6>
+                            <div class="d-flex align-items-center gap-2">
+                                <small class="text-muted x-small">${p.sku}</small>
+                                <span class="stock-pill ${stockClass}" style="font-size: 0.6rem; padding: 0.1rem 0.5rem; min-width: auto;">
+                                    ${stockText}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-end ms-2" style="min-width: 90px;">
+                        <small class="text-muted d-block x-small">P. Sugerido</small>
+                        <div class="fw-bold text-dark small">S/ ${(p.precio_venta_sugerido || 0).toFixed(2)}</div>
+                        <small class="text-primary fw-bold x-small">+ Despachar</small>
+                    </div>
+                </div>
+            </div>`;
+    });
+    
+    grid.innerHTML = html;
+
+    // --- ACTUALIZACIÓN DE INFO DE PANTALLA ---
+    var infoPag = document.getElementById('info-pag-dsp');
+    if(infoPag) {
+        infoPag.innerText = `${start + 1}-${Math.min(end, totalItems)} de ${totalItems}`;
+    }
+    
+    // --- PAGINACIÓN ESTANDARIZADA (page-btn) ---
+    var nav = document.getElementById('pag-cont-dsp');
+    if(nav) {
+        let pagHtml = `
+            <li class="page-item ${currentPagCatDesp===1?'disabled':''}">
+                <button class="page-btn" onclick="cambiarPaginaCatDesp(${currentPagCatDesp-1})">
+                    <i class="fa-solid fa-chevron-left"></i>
+                </button>
+            </li>`;
+        
+        // Generar números de página (máximo 3 visibles para no saturar)
+        let s = Math.max(1, currentPagCatDesp - 1);
+        let e = Math.min(totalPages, s + 2);
+        if(e - s < 2) s = Math.max(1, e - 2);
+        
+        for(var i=s; i<=e; i++) {
+            if(i < 1) continue;
+            var activeClass = i === currentPagCatDesp ? 'active' : '';
+            pagHtml += `
+                <li class="page-item">
+                    <button class="page-btn ${activeClass}" onclick="cambiarPaginaCatDesp(${i})">${i}</button>
+                </li>`;
+        }
+        
+        pagHtml += `
+            <li class="page-item ${currentPagCatDesp===totalPages?'disabled':''}">
+                <button class="page-btn" onclick="cambiarPaginaCatDesp(${currentPagCatDesp+1})">
+                    <i class="fa-solid fa-chevron-right"></i>
+                </button>
+            </li>`;
+            
+        nav.innerHTML = pagHtml;
+    }
+}
+
+function cambiarPaginaCatDesp(p) { if(p < 1) return; currentPagCatDesp = p; renderizarCatalogoDespacho(listaFiltradaDesp); }
+
+function agregarAlCarritoDespacho(id) {
+    // 1. Buscar el producto en la "memoria" del catálogo
+    var p = listaProductosDespacho.find(x => x.id === id);
+    if(!p) return;
+
+    // 2. Validar que Mi Técnico PC tenga stock físico
+    if(p.stock_actual <= 0) {
+        return MTPC_Toast.error('No hay stock disponible para despacho');
+    }
+    
+    // 3. Revisar si ya lo agregamos antes
+    var existe = carritoDespacho.find(i => i.producto_id === id);
+
+    if(existe) {
+        // Validar que no saquemos más de lo que existe
+        if(existe.cantidad >= p.stock_actual) {
+            return MTPC_Toast.error('Stock máximo alcanzado en almacén');
+        }
+        existe.cantidad++;
+        MTPC_Toast.success('Cantidad aumentada');
+    } else {
+        // 4. Si es nuevo, lo metemos al arreglo con sus propiedades de salida
+        carritoDespacho.push({
+            producto_id: p.id,
+            nombre: p.nombre,
+            sku: p.sku,
+            cantidad: 1,
+            precio: parseFloat(p.precio_venta_sugerido) || 0,
+            stock_max: p.stock_actual, // Guardamos el tope para validar después
+            numero_serie: '',          // Iniciamos vacío para que el técnico lo llene
+            es_licencia: (modoCatalogo === 'SOFTWARE') // Para cambiar el placeholder del input
+        });
+        MTPC_Toast.success('Producto agregado');
+    }
+
+    // 5. Refrescar la vista de la derecha
+    renderizarCarritoDespacho();
+}
+
+function renderizarCarritoDespacho() {
+    var container = document.getElementById('dsp-items-list');
+    var badge = document.getElementById('badge-dsp-count');
+    if (badge) badge.innerText = carritoDespacho.length;
+    
+    // ESTADO VACÍO (Uniforme con Compras)
+    if(carritoDespacho.length === 0) {
+        container.innerHTML = `
+            <div class="text-center py-5 opacity-50 small font-body border border-dashed rounded-3 bg-white mt-3">
+                <i class="fa-solid fa-cart-shopping d-block mb-2 fs-4"></i>
+                No hay repuestos asignados
+            </div>`;
+        recalcularCarritoDespacho();
+        return;
+    }
+
+    var html = '';
+    carritoDespacho.forEach((item, idx) => {
+        var precioNum = parseFloat(item.precio) || 0;
+        var subtotalCalculado = (item.cantidad * precioNum).toFixed(2);
+        
+        // Determinar placeholder para el dato adicional (Serie o Hostname)
+        var placeholderExtra = item.es_licencia ? 'Nombre Equipo / Hostname' : 'Escanear Serie (S/N)...';
+        var iconExtra = item.es_licencia ? 'fa-laptop-code' : 'fa-barcode';
+
+        html += `
+            <div class="card-std p-3 bg-white border shadow-sm position-relative animate__animated animate__fadeInRight">
+                <button class="btn btn-sm text-danger position-absolute top-0 end-0 mt-1 me-1 opacity-50 hover-opacity-100 p-1 shadow-none" 
+                        onclick="eliminarItemDespacho(${idx})">
+                    <i class="fa-solid fa-xmark fs-6"></i>
+                </button>
+
+                <div class="pe-4 mb-3">
+                    <h6 class="fw-bold text-dark text-truncate m-0 font-head" style="font-size:0.85rem;" title="${item.nombre}">
+                        ${item.nombre}
+                    </h6>
+                    <small class="text-muted x-small">SKU: ${item.sku}</small>
+                </div>
+
+                <div class="d-flex align-items-end justify-content-between gap-2">
+                    <div class="d-flex gap-2 align-items-center">
+                        <div class="d-flex align-items-center bg-light border rounded-2 overflow-hidden" style="height: 36px;">
+                            <button class="btn btn-sm px-2 border-0 hover-bg-gray h-100 text-muted shadow-none" 
+                                    onclick="cambiarCantDespacho(${idx}, -1)">
+                                <i class="fa-solid fa-minus x-small"></i>
+                            </button>
+                            <input type="text" class="form-control-plaintext text-center fw-bold p-0 bg-transparent" 
+                                   style="width: 30px; font-size: 0.85rem;" value="${item.cantidad}" readonly>
+                            <button class="btn btn-sm px-2 border-0 hover-bg-gray h-100 text-primary shadow-none" 
+                                    onclick="cambiarCantDespacho(${idx}, 1)">
+                                <i class="fa-solid fa-plus x-small"></i>
+                            </button>
+                        </div>
+
+                        <div class="d-flex align-items-center border rounded-2 overflow-hidden px-2 bg-white" style="height: 36px; width: 110px;">
+                            <i class="fas fa-sack-dollar text-muted x-small me-1"></i>
+                            <input type="number" class="form-control border-0 fw-bold p-0 text-end text-dark shadow-none" 
+                                   style="font-size: 0.85rem;" value="${item.precio}" 
+                                   oninput="actualizarDatoDespacho(${idx}, 'precio', this.value)">
+                        </div>
+                    </div>
+
+                    <div class="text-end">
+                        <small class="text-muted d-block x-small uppercase fw-bold" style="font-size:0.6rem;">Valor Salida</small>
+                        <span class="fw-bold text-primary" style="font-size:1rem;">S/ ${subtotalCalculado}</span>
+                    </div>
+                </div>
+
+                <div class="mt-3 pt-2 border-top">
+                    <div class="input-std-wrapper" style="height: 34px;">
+                        <i class="fa-solid ${iconExtra} input-std-icon x-small opacity-50"></i>
+                        <input type="text" class="input-std w-100" 
+                               style="padding-left: 2rem; height: 34px; font-size: 0.75rem; border-color: #f1f5f9;" 
+                               placeholder="${placeholderExtra}" 
+                               value="${item.numero_serie || ''}" 
+                               oninput="actualizarDatoDespacho(${idx}, 'sn', this.value)">
+                    </div>
+                </div>
+            </div>`;
+    });
+
+    container.innerHTML = html;
+    recalcularCarritoDespacho();
+}
+function actualizarDatoDespacho(idx, campo, valor) {
+    if(campo === 'sn') carritoDespacho[idx].numero_serie = valor;
+    else if(campo === 'precio') { carritoDespacho[idx].precio = parseFloat(valor) || 0; recalcularCarritoDespacho(); }
+}
+function cambiarCantDespacho(idx, delta) {
+    var item = carritoDespacho[idx];
+    var nuevo = item.cantidad + delta;
+    if(nuevo > 0 && nuevo <= item.stock_max) { item.cantidad = nuevo; renderizarCarritoDespacho(); }
+}
+function eliminarItemDespacho(idx) { carritoDespacho.splice(idx, 1); renderizarCarritoDespacho(); }
+function recalcularCarritoDespacho() {
+    var total = carritoDespacho.reduce((sum, i) => sum + (i.cantidad * i.precio), 0);
+    document.getElementById('lbl-total-dsp').innerText = total.toFixed(2);
+}
+function llenarSelectUsuariosDespacho() {
+    var sel = document.getElementById('dsp-user');
+    var html = '<option value="">Seleccione Técnico...</option>';
+    usuariosCache.forEach(u => html += `<option value="${u.id}">${u.nombre_completo}</option>`);
+    sel.innerHTML = html;
+}
+
+// ==========================================
+// 4. GUARDADO Y CONFIRMACIÓN
+// ==========================================
+
+function verificarDuplicidadOS(os) {
+    if(!os) return;
+    var existe = despachoCache.some(d => d.nro_orden_ref === os);
+    if(existe) {
+        // Usamos Toast de error para advertir sin bloquear el flujo
+        MTPC_Toast.error(`La OS ${os} ya tiene despachos registrados.`);
+    }
+}
+
+function guardarDespacho() {
+    const sesion = JSON.parse(localStorage.getItem('MTPC_Sesion') || '{}');
+    if (!sesion.id) return MTPC_Toast.error("Sesión Expirada. Por favor, vuelve a entrar.");
+    
+    var idTecnicoSolicitante = document.getElementById('dsp-user').value;
+    var nroOS = document.getElementById('dsp-ref').value;
+    var estadoOperacion = document.getElementById('dsp-estado').value;
+
+    // VALIDACIONES CON MTPC_Toast
+    if (!idTecnicoSolicitante || idTecnicoSolicitante == "0") return MTPC_Toast.error("Debes seleccionar un técnico solicitante.");
+    if (!nroOS) return MTPC_Toast.error("Ingrese el número de Orden de Servicio.");
+    if (carritoDespacho.length === 0) return MTPC_Toast.error("El carrito de despacho está vacío.");
+
+    var cabecera = {
+        solicitante_id: parseInt(idTecnicoSolicitante),
+        usuario_id: sesion.id,
+        tipo_salida: document.getElementById('dsp-tipo').value,
+        nro_orden_ref: nroOS,
+        fecha: document.getElementById('dsp-fecha').value,
+        estado: estadoOperacion,
+        total_venta: parseFloat(document.getElementById('lbl-total-dsp').innerText)
+    };
+
+    var items = carritoDespacho.map(i => ({
+        producto_id: i.producto_id,
+        descripcion: i.nombre,
+        cantidad: i.cantidad,
+        numero_serie: i.numero_serie,
+        precio_unitario_venta: i.precio,
+        licencia_inventario_id: null
+    }));
+
+    // FEEDBACK INICIAL
+    MTPC_Toast.loading('Registrando salida de materiales...');
+
+    google.script.run.withSuccessHandler(res => {
+        if(res.exito) {
+            MTPC_Toast.success('Salida registrada correctamente');
+            
+            // 1. Cerrar el Offcanvas
+            const offcanvasEl = document.getElementById('offcanvasDespacho');
+            const instance = bootstrap.Offcanvas.getInstance(offcanvasEl);
+            if(instance) instance.hide();
+
+            // 2. Refrescar la tabla principal (con el loader interno que ya configuramos)
+            cargarHistorialDespachos(); 
+
+            // 3. DIÁLOGO DE ÉXITO ESTILO PREMIUM (Igual a Compras)
+            Swal.fire({
+                title: '¡Despacho Realizado!',
+                html: `<div class="py-2">El vale de salida <b class="text-primary">#${res.codigo}</b> se generó con éxito.</div>
+                      <p class="text-muted small">¿Deseas imprimir el ticket térmico ahora?</p>`,
+                icon: 'success',
+                iconColor: '#22c55e',
+                showCancelButton: true,
+                confirmButtonText: '<i class="fa-solid fa-receipt me-2"></i> Imprimir Ticket',
+                cancelButtonText: 'Cerrar',
+                buttonsStyling: false,
+                customClass: {
+                    popup: 'mtpc-swal-popup',
+                    title: 'mtpc-swal-title',
+                    htmlContainer: 'mtpc-swal-html',
+                    confirmButton: 'btn btn-success mtpc-swal-confirm mx-2', 
+                    cancelButton: 'btn btn-light mtpc-swal-cancel mx-2'
+                }
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Llamada al ticket usando el ID generado que devuelve tu backend
+                    imprimirTicketTermico(res.id_generado || res.id); 
+                }
+            });
+
+        } else { 
+            MTPC_Toast.error("Error en base de datos: " + res.error); 
+        }
+    }).registrarDespacho(cabecera, items);
+}
+
+function confirmarDespachoExistente(id, codigo) {
+    MTPC_Dialog.confirm(
+        '¿Confirmar Salida?', 
+        `Se descontará stock físicamente para el vale <b>${codigo}</b>. Esta acción es irreversible.`,
+        'Sí, Confirmar',
+        '#198754' // Verde Success
+    ).then(r => {
+        if(r.isConfirmed) {
+            MTPC_Toast.loading('Procesando confirmación...');
+            
+            google.script.run.withSuccessHandler(res => {
+                MTPC_Toast.hideLoading();
+                if(res.exito) {
+                    MTPC_Toast.success('Despacho confirmado y stock actualizado');
+                    cargarHistorialDespachos(); // Refresco de tabla parcial
+                    setTimeout(() => imprimirTicketTermico(id), 600);
+                } else { 
+                    MTPC_Toast.error("Error: " + res.error); 
+                }
+            }).confirmarDespachoBackend(id);
+        }
+    });
+}
+
+function eliminarDespacho(id, codigo, estado) {
+    let msg = estado === 'Confirmado' 
+        ? `¿Estás seguro de eliminar el vale <b class="text-dark">${codigo}</b>?<br><small class="text-danger">Se restaurará el stock al inventario.</small>` 
+        : `¿Deseas eliminar el borrador del vale <b class="text-dark">${codigo}</b>?`;
+
+    Swal.fire({
+        title: '¿Eliminar Salida?',
+        html: msg,
+        icon: 'warning',
+        iconColor: '#ef4444',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, Eliminar',
+        cancelButtonText: 'Cancelar',
+        buttonsStyling: false,
+        reverseButtons: true, // Estándar de seguridad para acciones destructivas
+        customClass: {
+            popup: 'mtpc-swal-popup',
+            title: 'mtpc-swal-title',
+            htmlContainer: 'mtpc-swal-html',
+            confirmButton: 'btn btn-danger mtpc-swal-confirm mx-2',
+            cancelButton: 'btn btn-light mtpc-swal-cancel mx-2'
+        }
+    }).then(r => {
+        if(r.isConfirmed) {
+            MTPC_Toast.loading('Eliminando vale...');
+            google.script.run.withSuccessHandler(res => {
+                if(res.exito) { 
+                    MTPC_Toast.success('Registro eliminado'); 
+                    cargarHistorialDespachos(); 
+                } else { 
+                    MTPC_Toast.error(res.error); 
+                }
+            }).eliminarDespachoBackend(id);
+        }
+    });
+}
+
+// ==========================================
+// 5. HOT TOPICS (Tendencias)
+// ==========================================
+
+function abrirPanelTendencias() {
+    new bootstrap.Offcanvas(document.getElementById('offcanvasHotTopics')).show();
+    cargarHotTopics('HOY');
+}
+
+function cargarHotTopics(periodo = 'HOY') {
+    const display = document.getElementById('hot-topics-display');
+    if(!display) return;
+
+    // 1. Gestión de Botones (Clases CSS Puro)
+    const btnIds = ['hoy', 'semana', 'mes'];
+    btnIds.forEach(p => {
+        const btn = document.getElementById('filter-' + p);
+        if(btn) {
+            if(p.toUpperCase() === periodo) {
+                // Aplicamos el azul
+                btn.classList.add('active');
+            } else {
+                // Quitamos el azul y queda gris suave
+                btn.classList.remove('active');
+            }
+        }
+    });
+
+    display.innerHTML = '<div class="text-center py-5"><div class="stitch-spinner mx-auto"></div></div>';
+
+    // 2. Llamada al Backend (Promesas cruzadas que ya tenías)
+    var pData = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('detalles_despacho', 'cantidad, descripcion, producto_id, despachos(fecha)', '&limit=300&order=id.desc'));
+    var pProds = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('productos', 'id, nombre, stock_actual, categoria_id', ''));
+    var pCats = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('categorias', 'id, nombre', ''));
+
+    Promise.all([pData, pProds, pCats]).then(values => {
+        var rawData = values[0].datos || [];
+        var prods = values[1].datos || [];
+        var cats = values[2].datos || [];
+
+        // Filtrado por fecha
+        var hoy = new Date(); hoy.setHours(0,0,0,0);
+        var datosFiltrados = rawData.filter(d => {
+            if(!d.despachos || !d.despachos.fecha) return false;
+            var fD = new Date(d.despachos.fecha + 'T00:00:00');
+            if (periodo === 'HOY') return fD.getTime() === hoy.getTime();
+            if (periodo === 'SEMANA') { var h7 = new Date(hoy); h7.setDate(h7.getDate() - 7); return fD >= h7; }
+            return fD.getMonth() === hoy.getMonth() && fD.getFullYear() === hoy.getFullYear();
+        });
+
+        if(datosFiltrados.length === 0) {
+            display.innerHTML = `<div class="card-std p-5 text-center text-muted border-dashed mb-4"><i class="fa-solid fa-chart-pie fa-2x mb-3 opacity-20"></i><p class="x-small font-body m-0">Sin movimientos.</p></div>${renderStockCritico(prods)}`;
+            return;
+        }
+
+        let itemsMap = {}; let catMap = {}; let totalQty = 0;
+        datosFiltrados.forEach(d => {
+            itemsMap[d.descripcion] = (itemsMap[d.descripcion] || 0) + d.cantidad;
+            totalQty += d.cantidad;
+            var prod = prods.find(p => p.id === d.producto_id);
+            var catName = (prod && cats.find(c => c.id === prod.categoria_id)) ? cats.find(c => c.id === prod.categoria_id).nombre : 'Otros';
+            catMap[catName] = (catMap[catName] || 0) + d.cantidad;
+        });
+
+        var sortedItems = Object.keys(itemsMap).map(k => ({name: k, qty: itemsMap[k]})).sort((a,b) => b.qty - a.qty).slice(0, 5);
+
+        // 3. Renderizado Final (CSS Puro + FontAwesome)
+        display.innerHTML = `
+          <div class="mb-5 animate__animated animate__fadeIn">
+              <div class="d-flex justify-content-between align-items-center mb-4">
+                  <h6 class="fw-bold m-0 font-head text-dark" style="font-size:0.85rem;">
+                      <i class="fa-solid fa-arrow-trend-up text-primary me-2"></i>Más entregados
+                  </h6>
+                  <span class="text-muted uppercase tracking-wider font-bold" style="font-size: 0.6rem;">Unidades</span>
+              </div>
+              
+              <div class="d-flex flex-column gap-4">
+                  ${sortedItems.map(i => {
+                      // Cálculo del porcentaje (100% para el máximo)
+                      const porcentaje = (i.qty / sortedItems[0].qty) * 100;
+                      
+                      return `
+                      <div style="margin-bottom: 5px;">
+                          <div class="d-flex justify-content-between align-items-center mb-2">
+                              <div class="d-flex align-items-center gap-3 overflow-hidden">
+                                  <div style="width: 32px; height: 32px; background-color: #f8fafc; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 1px solid #e2e8f0;">
+                                      <i class="fa-solid fa-box-open text-secondary" style="font-size: 0.75rem;"></i>
+                                  </div>
+                                  <span class="text-dark font-body text-truncate" style="font-size: 0.75rem; max-width: 250px;" title="${i.name}">
+                                      ${i.name}
+                                  </span>
+                              </div>
+                              <span class="fw-bold text-dark font-monospace" style="font-size: 0.8rem;">${i.qty}</span>
+                          </div>
+                          
+                          <div style="width: 100%; height: 3px; background-color: #f1f5f9; border-radius: 10px; overflow: hidden;">
+                              <div style="width: ${porcentaje}%; height: 100%; background-color: #135bec; border-radius: 10px; transition: width 0.5s ease;"></div>
+                          </div>
+                      </div>`;
+                  }).join('')}
+              </div>
+          </div>
+
+          <div class="card-std p-4 mb-5 border-0 shadow-sm bg-white animate__animated animate__fadeIn" style="border-radius: 16px;">
+              <h6 class="fw-bold mb-4 font-head text-center text-muted x-small uppercase" style="letter-spacing:1px;">
+                  <i class="fa-solid fa-chart-pie me-2"></i>Salidas por Categoría
+              </h6>
+              <div style="height: 200px; position: relative;">
+                  <canvas id="chartPieTrends"></canvas>
+              </div>
+          </div>
+
+          <div class="animate__animated animate__fadeIn">
+              ${renderStockCritico(prods)}
+          </div>
+      `;
+        
+        // Inicializar Torta
+        var ctx = document.getElementById('chartPieTrends').getContext('2d');
+        if(window.hotTopicsChart) window.hotTopicsChart.destroy();
+        window.hotTopicsChart = new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: Object.keys(catMap),
+                datasets: [{
+                    data: Object.values(catMap),
+                    backgroundColor: ['#00295b', '#137fec', '#22c55e', '#ffc107', '#ef4444'],
+                    borderWidth: 2, borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 8, font: { family: 'Poppins', size: 9 } } } }
+            }
+        });
+    });
+}
+
+function renderStockCritico(prods) {
+    var lowStock = prods.filter(p => p.stock_actual > 0 && p.stock_actual <= 3).slice(0, 4);
+    
+    let htmlHeader = `
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h6 class="fw-bold text-dark font-head m-0 uppercase" style="font-size:0.65rem; letter-spacing:1px;">
+                <i class="fa-solid fa-triangle-exclamation text-danger me-2"></i>Stock Crítico
+            </h6>
+            <span class="badge bg-danger bg-opacity-10 text-danger x-small">Revisión Urgente</span>
+        </div>`;
+
+    if (lowStock.length === 0) return '';
+
+    return `
+        <div class="animate__animated animate__fadeIn">
+            ${htmlHeader}
+            <div class="d-flex flex-column gap-2">
+                ${lowStock.map(p => `
+                    <div class="alert-card-saas shadow-none border-0 bg-white shadow-sm">
+                        <div class="d-flex gap-3">
+                            <div class="icon-box border"><i class="fa-solid fa-box-open small"></i></div>
+                            <div>
+                                <p class="m-0 fw-bold text-dark font-head" style="font-size: 0.75rem;">${p.nombre}</p>
+                                <p class="m-0 text-muted" style="font-size: 0.65rem;">Almacén Mi Técnico PC</p>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <p class="m-0 fw-black text-danger" style="font-size: 0.8rem;">${p.stock_actual} un.</p>
+                            <p class="m-0 text-muted" style="font-size: 0.6rem;">Disponible</p>
+                        </div>
+                    </div>`).join('')}
+            </div>
+        </div>`;
+}
+
+// ==========================================
+// 6. IMPRESIÓN TICKET TÉRMICO (INTACTO)
+// ==========================================
+function imprimirTicketTermico(despachoId) {
+    MTPC_Toast.loading('Generando ticket para Mi Técnico PC...');
+    
+    var p1 = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('despachos', '*, solicitante:usuarios!solicitante_id(nombre_completo), despachador:usuarios!usuario_responsable_id(nombre_completo)', '&id=eq.' + despachoId));
+    var p2 = new Promise(r => google.script.run.withSuccessHandler(res => r(res)).dbSelect('detalles_despacho', '*', '&despacho_id=eq.' + despachoId));
+
+    Promise.all([p1, p2]).then(values => {
+        var cab = values[0].datos[0];
+        var dets = values[1].datos;
+        
+        if(!cab) { 
+            MTPC_Toast.hideLoading();
+            return MTPC_Toast.error('No se pudieron recuperar los datos del vale.'); 
+        }
+
+        var fecha = new Date(cab.fecha + 'T00:00:00').toLocaleString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        var nombreSolicitante = cab.solicitante ? cab.solicitante.nombre_completo : 'Sin Asignar';
+        var nombreDespachador = cab.despachador ? cab.despachador.nombre_completo : 'Sistema';
+
+        var ticketHTML = `
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                @page { size: 80mm auto; margin: 0; }
+                body { width: 80mm; background: white; font-family: 'Courier New'; font-size: 11px; color: black; line-height: 1.2; padding: 5px; }
+                .dashed { border-top: 1px dashed black; margin: 8px 0; }
+                .bold { font-weight: bold; }
+                .center { text-align: center; }
+                .right { text-align: right; }
+                .flex { display: flex; justify-content: space-between; }
+                .item-row td { padding-bottom: 4px; vertical-align: top; }
+                .sign-box { border-top: 1px solid black; margin-top: 30px; padding-top: 5px; text-align: center; width: 80%; margin-left: auto; margin-right: auto; }
+            </style>
+        </head>
+        <body>
+            <div class="center bold" style="font-size:14px">MI TÉCNICO PC</div>
+            <div class="center" style="font-size:10px">VALE DE SALIDA INTERNA</div>
+            <div class="dashed"></div>
+            <div class="flex"><span>VALE:</span> <span class="bold">${cab.codigo_despacho}</span></div>
+            <div class="flex"><span>FECHA:</span> <span>${fecha}</span></div>
+            <div class="dashed"></div>
+            <div><span class="bold">REF / OS:</span> ${cab.nro_orden_ref || '-'}</div>
+            <div><span class="bold">SOLICITA:</span> ${nombreSolicitante}</div>
+            <div><span class="bold">DESPACHA:</span> ${nombreDespachador}</div>
+            <div class="dashed"></div>
+            <table style="width: 100%;">
+                <thead>
+                    <tr style="text-align: left; font-size: 10px;">
+                        <th style="width: 10%;">CANT</th>
+                        <th style="width: 60%;">DESCRIPCIÓN</th>
+                        <th style="width: 30%; text-align: right;">P.UNIT</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${dets.map(d => `
+                        <tr class="item-row">
+                            <td class="bold center">${d.cantidad}</td>
+                            <td>
+                                <div>${d.descripcion}</div>
+                                ${d.numero_serie_equipo ? `<div style="font-size:9px">S/N: ${d.numero_serie_equipo}</div>` : ''}
+                            </td>
+                            <td class="right">${parseFloat(d.precio_unitario_venta).toFixed(2)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            <div class="dashed"></div>
+            <div class="right bold" style="font-size: 12px;">TOTAL: S/ ${parseFloat(cab.total_venta).toFixed(2)}</div>
+            <div class="dashed"></div>
+            <div class="center" style="font-size:10px; margin-bottom:10px;">RECIBIDO CONFORME</div>
+            <div class="sign-box">
+                <div class="bold">${nombreSolicitante}</div>
+                <div style="font-size:9px">FIRMA DEL TÉCNICO</div>
+            </div>
+            <div class="center" style="font-size:9px; margin-top:15px;">Generado por Sistema</div>
+        </body>
+        </html>
+        `;
+
+        var iframe = document.getElementById('printFrame');
+        var doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(ticketHTML);
+        doc.close();
+
+        MTPC_Toast.hideLoading();
+
+        iframe.onload = function() {
+            setTimeout(() => {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+            }, 500);
+        };
+    }).catch(err => {
+        MTPC_Toast.hideLoading();
+        MTPC_Toast.error("Error técnico al procesar impresión.");
+        console.error(err);
+    });
+}
+
+function toggleVisualEstadoDespacho(checkbox) {
+    const lblBorrador = document.getElementById('lbl-borrador-dsp');
+    const lblConfirmado = document.getElementById('lbl-confirmado-dsp');
+    const inputEstado = document.getElementById('dsp-estado');
+
+    if (checkbox.checked) {
+        // ACTIVADO: Confirmado
+        lblBorrador.classList.replace('text-on', 'text-off');
+        lblConfirmado.classList.replace('text-off', 'text-on');
+        inputEstado.value = 'Confirmado';
+    } else {
+        // DESACTIVADO: Borrador
+        lblBorrador.classList.replace('text-off', 'text-on');
+        lblConfirmado.classList.replace('text-on', 'text-off');
+        inputEstado.value = 'Borrador';
+    }
+}
+</script>
